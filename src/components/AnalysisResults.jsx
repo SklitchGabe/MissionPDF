@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
-import { Download, ChevronDown, ChevronRight } from 'lucide-react';
+import { Download, ChevronDown, ChevronRight, GitBranch } from 'lucide-react';
+import WordTree from './WordTree';
 
-const AnalysisResults = ({ results, keywords }) => {
+const AnalysisResults = ({ results, documents }) => {
   const [expandedDocs, setExpandedDocs] = useState(new Set());
   const [expandedKeywords, setExpandedKeywords] = useState(new Set());
+  const [showWordTree, setShowWordTree] = useState(false);
+  const [selectedKeyword, setSelectedKeyword] = useState(null);
 
   const toggleDoc = (docId) => {
     const newExpanded = new Set(expandedDocs);
@@ -50,6 +53,7 @@ const AnalysisResults = ({ results, keywords }) => {
             'Keyword': keyword,
             'Category': data.category,
             'Context': match.context,
+            'Similarity': match.similarity?.toFixed(3) || 'N/A'
           });
         });
       });
@@ -116,6 +120,7 @@ const AnalysisResults = ({ results, keywords }) => {
                       <th className="pb-2">Category</th>
                       <th className="pb-2">Count</th>
                       <th className="pb-2">Actions</th>
+                      <th className="pb-2">Visualization</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -134,17 +139,36 @@ const AnalysisResults = ({ results, keywords }) => {
                                 'Hide Matches' : 'Show Matches'}
                             </button>
                           </td>
+                          <td className="py-2">
+                            <button
+                              onClick={() => {
+                                setSelectedKeyword(keyword);
+                                setShowWordTree(true);
+                              }}
+                              className="flex items-center gap-1 text-green-500 hover:text-green-600 text-sm"
+                            >
+                              <GitBranch className="h-4 w-4" />
+                              Word Tree
+                            </button>
+                          </td>
                         </tr>
                         {expandedKeywords.has(`${doc.documentId}-${keyword}`) && (
                           <tr>
-                            <td colSpan="4" className="py-2">
+                            <td colSpan="5" className="py-2">
                               <div className="pl-4 space-y-2">
                                 {data.matches.map((match, idx) => (
                                   <div 
                                     key={idx}
                                     className="text-sm bg-gray-50 dark:bg-gray-700 p-2 rounded"
                                   >
-                                    {match.context}
+                                    <div>
+                                      {match.context}
+                                    </div>
+                                    {match.similarity && (
+                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        Similarity: {match.similarity.toFixed(3)}
+                                      </div>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -160,6 +184,17 @@ const AnalysisResults = ({ results, keywords }) => {
           </div>
         ))}
       </div>
+
+      {showWordTree && selectedKeyword && (
+        <WordTree
+          documents={documents}
+          keyword={selectedKeyword}
+          onClose={() => {
+            setShowWordTree(false);
+            setSelectedKeyword(null);
+          }}
+        />
+      )}
     </div>
   );
 };

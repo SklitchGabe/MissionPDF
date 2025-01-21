@@ -23,18 +23,18 @@ function App() {
     console.log('Documents after processing:', documents);
   };
 
-  
-
   const handleAnalyze = async (keywords, globalSettings) => {
     try {
-      console.log('Starting analysis with documents:', documents.map(d => ({
-        name: d.name,
-        contentLength: d.content?.length,
-        contentPreview: d.content?.slice(0, 100)
-      })));
+      console.log('Starting analysis with documents:', documents);
       console.log('Keywords to search for:', keywords);
       console.log('Global settings:', globalSettings);
-  
+
+      // Check if we have document content
+      documents.forEach(doc => {
+        console.log(`Document ${doc.name} content preview:`, 
+          doc.content ? doc.content.slice(0, 100) : 'NO CONTENT');
+      });
+
       const results = await analyzeText(documents, keywords, globalSettings);
       console.log('Analysis results:', results);
       setAnalysisResults(results);
@@ -123,6 +123,7 @@ function App() {
         {analysisResults && (
           <AnalysisResults 
             results={analysisResults}
+            documents={documents} // Pass the documents array here
           />
         )}
       </div>
