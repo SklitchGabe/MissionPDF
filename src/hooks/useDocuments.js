@@ -9,11 +9,14 @@ export function useDocuments() {
   const processDocuments = useCallback(async (files) => {
     setIsProcessing(true);
     setError(null);
+    console.log('Processing files:', files);
 
     try {
       const processedDocs = await Promise.all(
         files.map(async (file) => {
+          console.log('Processing file:', file.name);
           const parsed = await parsePDF(file);
+          console.log('Parsed content preview:', parsed.text.slice(0, 100));
           return {
             id: `${file.name}-${Date.now()}`,
             name: file.name,
@@ -25,6 +28,7 @@ export function useDocuments() {
         })
       );
 
+      console.log('Processed documents:', processedDocs);
       setDocuments(prev => [...prev, ...processedDocs]);
     } catch (err) {
       setError(err.message);

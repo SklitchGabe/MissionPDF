@@ -2,6 +2,8 @@ import { useState } from 'react';
 import PDFUploader from './components/PDFUploader';
 import TextViewer from './components/TextViewer';
 import KeywordAnalyzer from './components/KeywordAnalyzer';
+import AnalysisResults from './components/AnalysisResults';
+import { analyzeText } from './utils/textAnalyzer.js';
 import { useDocuments } from './hooks/useDocuments';
 
 function App() {
@@ -16,12 +18,30 @@ function App() {
   const [analysisResults, setAnalysisResults] = useState(null);
 
   const handleFileUpload = async (files) => {
+    console.log('Files received:', files);
     await processDocuments(files);
+    console.log('Documents after processing:', documents);
   };
 
+  
+
   const handleAnalyze = async (keywords, globalSettings) => {
-    console.log('Starting analysis with:', { keywords, globalSettings });
-    // We'll implement the analysis logic next
+    try {
+      console.log('Starting analysis with documents:', documents.map(d => ({
+        name: d.name,
+        contentLength: d.content?.length,
+        contentPreview: d.content?.slice(0, 100)
+      })));
+      console.log('Keywords to search for:', keywords);
+      console.log('Global settings:', globalSettings);
+  
+      const results = await analyzeText(documents, keywords, globalSettings);
+      console.log('Analysis results:', results);
+      setAnalysisResults(results);
+    } catch (error) {
+      console.error('Analysis error:', error);
+      alert('Error during analysis: ' + error.message);
+    }
   };
 
   return (
@@ -97,6 +117,12 @@ function App() {
           <TextViewer
             document={selectedDocument}
             onClose={() => setSelectedDocument(null)}
+          />
+        )}
+
+        {analysisResults && (
+          <AnalysisResults 
+            results={analysisResults}
           />
         )}
       </div>
