@@ -1,15 +1,25 @@
 export async function analyzeText(documents, keywords, globalSettings) {
-  // For debugging
   console.log('Starting analysis with:', {
     documentCount: documents.length,
     keywords: keywords.map(k => k.word),
     settings: globalSettings
   });
 
+  // Helper function to check if context words exist within range
+  function checkContextMatch(text, position, contextWords, range) {
+    if (!contextWords || contextWords.length === 0) return true;
+    
+    const words = text.split(' ');
+    const startPos = Math.max(0, position - range);
+    const endPos = Math.min(words.length, position + range);
+    const contextText = words.slice(startPos, endPos).join(' ').toLowerCase();
+    
+    return contextWords.some(word => contextText.includes(word.toLowerCase()));
+  }
+
   const results = [];
   
   for (const doc of documents) {
-    // Basic document validation
     if (!doc.content) {
       console.warn(`Document ${doc.name} has no content`);
       continue;
@@ -17,50 +27,68 @@ export async function analyzeText(documents, keywords, globalSettings) {
 
     console.log(`Analyzing document: ${doc.name}, content length: ${doc.content.length}`);
     
-    // Prepare document result object
     const docResult = {
       documentId: doc.id,
       documentName: doc.name,
       keywords: {}
     };
 
-    // Convert content to lowercase for case-insensitive search
     const documentText = doc.content.toLowerCase();
+    const documentWords = documentText.split(' ');
     
-    // Process each keyword
     for (const keyword of keywords) {
       if (!keyword.word) continue;
       
-      // Convert keyword to lowercase for matching
       const searchTerm = keyword.word.toLowerCase();
       console.log(`Searching for keyword: "${searchTerm}"`);
       
-      // Simple text search
+      // Parse context words if provided
+      const contextBefore = keyword.contextBefore ? 
+        keyword.contextBefore.split(',').map(w => w.trim()).filter(w => w) : [];
+      const contextAfter = keyword.contextAfter ? 
+        keyword.contextAfter.split(',').map(w => w.trim()).filter(w => w) : [];
+      const contextRange = keyword.contextRange || 5; // Default to 5 words if not specified
+      
       const matches = [];
       let position = 0;
       let lastIndex = -1;
       
       // Find all occurrences
       while ((position = documentText.indexOf(searchTerm, lastIndex + 1)) !== -1) {
-        // Get surrounding context (20 words before and after)
-        const contextStart = documentText.lastIndexOf(' ', Math.max(0, position - 100)) + 1;
-        const contextEnd = documentText.indexOf(' ', Math.min(documentText.length, position + searchTerm.length + 100));
+        // Get word position in the split array
+        const wordPosition = documentText.slice(0, position).split(' ').length - 1;
         
-        const context = documentText.slice(
-          contextStart === -1 ? 0 : contextStart,
-          contextEnd === -1 ? documentText.length : contextEnd
+        // Check context conditions if specified
+        const hasValidContext = (
+          checkContextMatch(documentText, wordPosition, contextBefore, contextRange) &&
+          checkContextMatch(documentText, wordPosition, contextAfter, contextRange)
         );
         
-        matches.push({
-          position: position,
-          term: keyword.word,
-          context: context
-        });
+        // Only add match if context conditions are met or no context was specified
+        if (hasValidContext) {
+          // Get surrounding context for display
+          const contextStart = Math.max(0, wordPosition - contextRange);
+          const contextEnd = Math.min(documentWords.length, wordPosition + contextRange + 1);
+          const context = documentWords.slice(contextStart, contextEnd).join(' ');
+          
+          matches.push({
+            position: position,
+            term: keyword.word,
+            context: context,
+            wordsBefore: documentWords.slice(
+              Math.max(0, wordPosition - contextRange),
+              wordPosition
+            ).join(' '),
+            wordsAfter: documentWords.slice(
+              wordPosition + 1,
+              Math.min(documentWords.length, wordPosition + contextRange + 1)
+            ).join(' ')
+          });
+        }
         
         lastIndex = position;
       }
       
-      // Store results for this keyword
       docResult.keywords[keyword.word] = {
         count: matches.length,
         category: keyword.category || '',

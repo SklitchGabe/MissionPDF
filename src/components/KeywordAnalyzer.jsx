@@ -1,14 +1,25 @@
 import React, { useState } from 'react';
-import { Plus, X, Search } from 'lucide-react';
+import { Plus, X, Search, ChevronDown, ChevronUp } from 'lucide-react';
 
 const KeywordAnalyzer = ({ documents, onAnalyze }) => {
   const [keywords, setKeywords] = useState([{ 
     word: '',
-    category: ''
+    category: '',
+    contextBefore: '',
+    contextAfter: '',
+    contextRange: 5,
+    showAdvanced: false
   }]);
 
   const addKeyword = () => {
-    setKeywords([...keywords, { word: '', category: '' }]);
+    setKeywords([...keywords, { 
+      word: '', 
+      category: '',
+      contextBefore: '',
+      contextAfter: '',
+      contextRange: 5,
+      showAdvanced: false
+    }]);
   };
 
   const removeKeyword = (index) => {
@@ -21,15 +32,22 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
     setKeywords(newKeywords);
   };
 
+  const toggleAdvanced = (index) => {
+    const newKeywords = [...keywords];
+    newKeywords[index] = { 
+      ...newKeywords[index], 
+      showAdvanced: !newKeywords[index].showAdvanced 
+    };
+    setKeywords(newKeywords);
+  };
+
   const handleAnalyze = () => {
-    // Filter out empty keywords
     const validKeywords = keywords.filter(k => k.word.trim() !== '');
     if (validKeywords.length === 0) {
       alert('Please enter at least one keyword');
       return;
     }
     
-    // Call the parent's analyze function with minimal settings
     onAnalyze(validKeywords, {
       deFuzzText: false,
       normalizeText: false,
@@ -88,6 +106,68 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
                   placeholder="e.g., biodiversity, agriculture..."
                 />
               </div>
+            </div>
+
+            <div className="mt-4">
+              <button
+                onClick={() => toggleAdvanced(index)}
+                className="flex items-center gap-2 text-gray-600 hover:text-gray-800 
+                         dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                {keyword.showAdvanced ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+                Context Options
+              </button>
+
+              {keyword.showAdvanced && (
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
+                      Words Before (comma-separated)
+                    </label>
+                    <input
+                      type="text"
+                      value={keyword.contextBefore}
+                      onChange={(e) => updateKeyword(index, 'contextBefore', e.target.value)}
+                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      placeholder="e.g., agricultural, environmental"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
+                      Words After (comma-separated)
+                    </label>
+                    <input
+                      type="text"
+                      value={keyword.contextAfter}
+                      onChange={(e) => updateKeyword(index, 'contextAfter', e.target.value)}
+                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      placeholder="e.g., practices, methods"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
+                      Word Range (number of words to check before/after)
+                    </label>
+                    <input
+                      type="number"
+                      value={keyword.contextRange}
+                      onChange={(e) => updateKeyword(index, 'contextRange', Math.max(1, parseInt(e.target.value) || 5))}
+                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      min="1"
+                      max="50"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ))}
