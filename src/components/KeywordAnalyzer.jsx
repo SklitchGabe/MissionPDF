@@ -8,7 +8,9 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
     contextBefore: '',
     contextAfter: '',
     contextRange: 5,
-    showAdvanced: false
+    showAdvanced: false,
+    useFuzzyMatch: false,
+    fuzzyMatchThreshold: 0.8
   }]);
 
   const addKeyword = () => {
@@ -18,7 +20,9 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
       contextBefore: '',
       contextAfter: '',
       contextRange: 5,
-      showAdvanced: false
+      showAdvanced: false,
+      useFuzzyMatch: false,
+      fuzzyMatchThreshold: 0.8
     }]);
   };
 
@@ -64,6 +68,7 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
       <div className="space-y-4">
         {keywords.map((keyword, index) => (
           <div key={index} className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+            {/* Basic Keyword Fields */}
             <div className="flex justify-between mb-4">
               <h3 className="text-lg font-medium text-gray-800 dark:text-gray-200">
                 Keyword {index + 1}
@@ -108,6 +113,7 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
               </div>
             </div>
 
+            {/* Advanced Options */}
             <div className="mt-4">
               <button
                 onClick={() => toggleAdvanced(index)}
@@ -119,52 +125,97 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
                 ) : (
                   <ChevronDown className="h-4 w-4" />
                 )}
-                Context Options
+                Advanced Options
               </button>
 
               {keyword.showAdvanced && (
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-                      Words Before (comma-separated)
-                    </label>
-                    <input
-                      type="text"
-                      value={keyword.contextBefore}
-                      onChange={(e) => updateKeyword(index, 'contextBefore', e.target.value)}
-                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
-                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      placeholder="e.g., agricultural, environmental"
-                    />
+                <div className="mt-4 space-y-4">
+                  {/* Context Settings */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
+                        Words Before (comma-separated)
+                      </label>
+                      <input
+                        type="text"
+                        value={keyword.contextBefore}
+                        onChange={(e) => updateKeyword(index, 'contextBefore', e.target.value)}
+                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                                 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        placeholder="e.g., agricultural, environmental"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
+                        Words After (comma-separated)
+                      </label>
+                      <input
+                        type="text"
+                        value={keyword.contextAfter}
+                        onChange={(e) => updateKeyword(index, 'contextAfter', e.target.value)}
+                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                                 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        placeholder="e.g., practices, methods"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
+                        Word Range
+                      </label>
+                      <input
+                        type="number"
+                        value={keyword.contextRange}
+                        onChange={(e) => updateKeyword(index, 'contextRange', 
+                          Math.max(1, parseInt(e.target.value) || 5))}
+                        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                                 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                        min="1"
+                        max="50"
+                      />
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-                      Words After (comma-separated)
-                    </label>
-                    <input
-                      type="text"
-                      value={keyword.contextAfter}
-                      onChange={(e) => updateKeyword(index, 'contextAfter', e.target.value)}
-                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
-                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      placeholder="e.g., practices, methods"
-                    />
-                  </div>
+                  {/* Fuzzy Matching Settings */}
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 mb-2">
+                      Fuzzy Matching
+                    </h4>
+                    
+                    <div className="flex items-center mb-2">
+                      <input
+                        type="checkbox"
+                        checked={keyword.useFuzzyMatch}
+                        onChange={(e) => updateKeyword(index, 'useFuzzyMatch', e.target.checked)}
+                        className="rounded border-gray-300 dark:border-gray-600"
+                      />
+                      <label className="ml-2 text-sm text-gray-600 dark:text-gray-400">
+                        Enable fuzzy matching
+                      </label>
+                    </div>
 
-                  <div className="md:col-span-2">
-                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-                      Word Range (number of words to check before/after)
-                    </label>
-                    <input
-                      type="number"
-                      value={keyword.contextRange}
-                      onChange={(e) => updateKeyword(index, 'contextRange', Math.max(1, parseInt(e.target.value) || 5))}
-                      className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
-                               bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      min="1"
-                      max="50"
-                    />
+                    {keyword.useFuzzyMatch && (
+                      <div>
+                        <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
+                          Similarity Threshold (0.0 - 1.0)
+                        </label>
+                        <input
+                          type="number"
+                          value={keyword.fuzzyMatchThreshold}
+                          onChange={(e) => updateKeyword(index, 'fuzzyMatchThreshold', 
+                            Math.min(1, Math.max(0, parseFloat(e.target.value) || 0.8)))}
+                          step="0.1"
+                          className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                                   bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                          min="0"
+                          max="1"
+                        />
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          Higher values require closer matches (0.8 recommended)
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
