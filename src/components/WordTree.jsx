@@ -6,9 +6,11 @@ const WordTree = ({ documents, keyword, onClose }) => {
   const [zoom, setZoom] = useState(1);
   const [treeData, setTreeData] = useState(null);
   const [wordRange, setWordRange] = useState(5);
-  const [showCount, setShowCount] = useState(50); // Number of instances to show at once
+  const [showCount, setShowCount] = useState(50);
+  const [hoveredLine, setHoveredLine] = useState(null);
   const containerRef = useRef(null);
 
+  // Previous useEffect hooks remain the same...
   useEffect(() => {
     const handleEscape = (e) => {
       if (e.key === 'Escape') onClose();
@@ -22,8 +24,8 @@ const WordTree = ({ documents, keyword, onClose }) => {
 
     const extractWordTreeData = () => {
       const flows = {
-        instances: [], // Array of individual matches
-        documentFlows: {} // Matches by document
+        instances: [],
+        documentFlows: {}
       };
 
       documents.forEach(doc => {
@@ -41,7 +43,6 @@ const WordTree = ({ documents, keyword, onClose }) => {
 
         words.forEach((word, index) => {
           if (word === keyword.toLowerCase()) {
-            // Get context before and after
             const beforeStart = Math.max(0, index - wordRange);
             const afterEnd = Math.min(words.length, index + wordRange + 1);
 
@@ -76,7 +77,6 @@ const WordTree = ({ documents, keyword, onClose }) => {
       );
     }
 
-    // Get instances for current document selection
     const instances = selectedDoc === 'all' ? 
       treeData.instances : 
       treeData.documentFlows[selectedDoc]?.instances || [];
@@ -91,7 +91,6 @@ const WordTree = ({ documents, keyword, onClose }) => {
       );
     }
 
-    // Sort instances by before text for better visualization
     const sortedInstances = [...instances].sort((a, b) => a.before.localeCompare(b.before));
     const visibleInstances = sortedInstances.slice(0, showCount);
 
@@ -100,10 +99,11 @@ const WordTree = ({ documents, keyword, onClose }) => {
     const centerX = width / 2;
     const centerY = height / 2;
 
-    // Calculate spacing based on number of instances
-    const lineHeight = 20;
+    const lineHeight = 24; // Increased line height
     const totalHeight = visibleInstances.length * lineHeight;
     const startY = -totalHeight / 2;
+    const lineWidth = 300; // Increased line width for more spacing
+    const textOffset = 40; // Space between lines and text
 
     return (
       <svg 
@@ -115,17 +115,22 @@ const WordTree = ({ documents, keyword, onClose }) => {
         <g transform={`translate(${centerX}, ${centerY})`}>
           {visibleInstances.map((instance, index) => {
             const y = startY + (index * lineHeight);
-            const lineWidth = 200; // Fixed width for lines
+            const uniqueId = `${instance.documentId}-${instance.position}`;
 
             return (
-              <g key={`${instance.documentId}-${instance.position}`}>
+              <g 
+                key={uniqueId}
+                onMouseEnter={() => setHoveredLine(uniqueId)}
+                onMouseLeave={() => setHoveredLine(null)}
+                className="opacity-90 hover:opacity-100 transition-opacity"
+              >
                 {/* Before text */}
                 <text 
-                  x={-10}
+                  x={-textOffset}
                   y={y} 
                   textAnchor="end"
                   alignmentBaseline="middle"
-                  className="fill-gray-600 dark:fill-gray-300 text-sm"
+                  className="fill-gray-600 dark:fill-gray-300 text-sm font-medium"
                 >
                   {instance.before}
                 </text>
@@ -150,25 +155,27 @@ const WordTree = ({ documents, keyword, onClose }) => {
 
                 {/* After text */}
                 <text 
-                  x={10}
+                  x={textOffset}
                   y={y}
                   textAnchor="start"
                   alignmentBaseline="middle"
-                  className="fill-gray-600 dark:fill-gray-300 text-sm"
+                  className="fill-gray-600 dark:fill-gray-300 text-sm font-medium"
                 >
                   {instance.after}
                 </text>
 
-                {/* Document indicator */}
-                <text
-                  x={lineWidth + 20}
-                  y={y}
-                  textAnchor="start"
-                  alignmentBaseline="middle"
-                  className="fill-gray-400 dark:fill-gray-500 text-xs"
-                >
-                  {instance.documentName}
-                </text>
+                {/* Document name (visible on hover) */}
+                {hoveredLine === uniqueId && (
+                  <text
+                    x={lineWidth + 30}
+                    y={y}
+                    textAnchor="start"
+                    alignmentBaseline="middle"
+                    className="fill-blue-500 dark:fill-blue-400 text-xs font-medium"
+                  >
+                    {instance.documentName}
+                  </text>
+                )}
               </g>
             );
           })}
@@ -183,11 +190,22 @@ const WordTree = ({ documents, keyword, onClose }) => {
           >
             {keyword}
           </text>
+
+          {/* Total count indicator */}
+          <text
+            x="0"
+            y={-totalHeight/2 - 20}
+            textAnchor="middle"
+            className="fill-gray-500 dark:fill-gray-400 text-sm"
+          >
+            Showing {visibleInstances.length} of {instances.length} matches
+          </text>
         </g>
       </svg>
     );
   };
 
+  // Rest of the component remains the same...
   return (
     <div 
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
@@ -205,7 +223,6 @@ const WordTree = ({ documents, keyword, onClose }) => {
           </h2>
           
           <div className="flex items-center gap-4">
-            {/* Word range control */}
             <div>
               <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
                 Words to Show
@@ -221,7 +238,6 @@ const WordTree = ({ documents, keyword, onClose }) => {
               />
             </div>
 
-            {/* Document selector */}
             <select
               value={selectedDoc}
               onChange={(e) => {
@@ -239,7 +255,6 @@ const WordTree = ({ documents, keyword, onClose }) => {
               ))}
             </select>
 
-            {/* Zoom controls */}
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setZoom(z => Math.max(0.5, z - 0.1))}
@@ -261,7 +276,6 @@ const WordTree = ({ documents, keyword, onClose }) => {
               </button>
             </div>
 
-            {/* Close button */}
             <button
               onClick={onClose}
               className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
