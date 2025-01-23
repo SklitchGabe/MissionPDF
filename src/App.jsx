@@ -10,6 +10,7 @@ function App() {
   const {
     documents,
     isProcessing,
+    progress,  // Added this line
     error,
     processDocuments,
     removeDocument
@@ -51,7 +52,14 @@ function App() {
           Document Analysis Tool
         </h1>
         
-        <PDFUploader onFileUpload={handleFileUpload} />
+        {/* Fixed PDFUploader component with all required props */}
+        <div className="mb-8"> {/* Added wrapper with margin */}
+          <PDFUploader 
+            onFileUpload={handleFileUpload} 
+            isProcessing={isProcessing}
+            progress={progress}
+          />
+        </div>
         
         {isProcessing && (
           <div className="mt-4 text-center text-blue-500 dark:text-blue-400">
@@ -65,6 +73,7 @@ function App() {
           </div>
         )}
 
+        {/* Rest of your components remain the same */}
         {documents.length > 0 && (
           <>
             <div className="mt-8">
@@ -123,7 +132,7 @@ function App() {
         {analysisResults && (
           <AnalysisResults 
             results={analysisResults}
-            documents={documents} // Pass the documents array here
+            documents={documents}
           />
         )}
       </div>

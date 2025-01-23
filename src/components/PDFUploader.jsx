@@ -1,9 +1,10 @@
 import React, { useState, useCallback } from 'react';
-import { Upload } from 'lucide-react';
+import { Upload, AlertTriangle } from 'lucide-react';
 
-const PDFUploader = ({ onFileUpload }) => {
+const PDFUploader = ({ onFileUpload, isProcessing, progress }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [warning, setWarning] = useState(null);
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -16,29 +17,47 @@ const PDFUploader = ({ onFileUpload }) => {
   }, []);
 
   const processFiles = useCallback((files) => {
+    // 200MB per file
+    const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
+    // 2GB total
+    const MAX_TOTAL_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
+
     const pdfFiles = Array.from(files).filter(file => 
       file.type === 'application/pdf'
     );
 
     if (pdfFiles.length === 0) {
-      alert('Please upload PDF files only');
+      setWarning('Please upload PDF files only');
+      return;
+    }
+
+    // Check individual file sizes
+    const largeFiles = pdfFiles.filter(file => file.size > MAX_FILE_SIZE);
+    if (largeFiles.length > 0) {
+      setWarning(`${largeFiles.length} files exceed 200MB size limit`);
+      return;
+    }
+
+    // Check total size
+    const totalSize = pdfFiles.reduce((sum, file) => sum + file.size, 0);
+    if (totalSize > MAX_TOTAL_SIZE) {
+      setWarning('Total upload size exceeds 2GB limit');
       return;
     }
 
     setUploadedFiles(prev => [...prev, ...pdfFiles]);
-    onFileUpload && onFileUpload(pdfFiles);
-  }, [onFileUpload]);
+    setWarning(null);
+    onFileUpload(pdfFiles);
+}, [onFileUpload]);
 
   const handleDrop = useCallback((e) => {
     e.preventDefault();
     setIsDragging(false);
-    const files = e.dataTransfer.files;
-    processFiles(files);
+    processFiles(e.dataTransfer.files);
   }, [processFiles]);
 
   const handleFileInput = useCallback((e) => {
-    const files = e.target.files;
-    processFiles(files);
+    processFiles(e.target.files);
   }, [processFiles]);
 
   const removeFile = useCallback((index) => {
@@ -46,7 +65,7 @@ const PDFUploader = ({ onFileUpload }) => {
   }, []);
 
   return (
-    <div className="w-full max-w-2xl mx-auto">
+    <div className="w-full max-w-3xl mx-auto">
       <div
         className={`border-2 border-dashed rounded-lg p-8 text-center ${
           isDragging 
@@ -59,18 +78,43 @@ const PDFUploader = ({ onFileUpload }) => {
       >
         <Upload className="w-12 h-12 mx-auto text-gray-400 dark:text-gray-500" />
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-          Drag and drop PDF files here, or
-          <label className="mx-1 text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer">
-            browse
-            <input
-              type="file"
-              className="hidden"
-              multiple
-              accept=".pdf"
-              onChange={handleFileInput}
-            />
-          </label>
+          {isProcessing ? (
+            `Processing: ${progress.processed} of ${progress.total} files`
+          ) : (
+            <>
+              Drag and drop PDF files here, or
+              <label className="mx-1 text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer">
+                browse
+                <input
+                  type="file"
+                  className="hidden"
+                  multiple
+                  accept=".pdf"
+                  onChange={handleFileInput}
+                  disabled={isProcessing}
+                />
+              </label>
+            </>
+          )}
         </p>
+        
+        {warning && (
+          <div className="mt-2 flex items-center justify-center text-amber-600 dark:text-amber-400">
+            <AlertTriangle className="w-4 h-4 mr-2" />
+            <span className="text-sm">{warning}</span>
+          </div>
+        )}
+
+        {isProcessing && (
+          <div className="mt-4">
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+              <div 
+                className="bg-blue-500 h-2.5 rounded-full transition-all duration-300"
+                style={{ width: `${(progress.processed / progress.total) * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {uploadedFiles.length > 0 && (
@@ -78,24 +122,33 @@ const PDFUploader = ({ onFileUpload }) => {
           <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-white">
             Uploaded Files:
           </h3>
-          <ul className="space-y-2">
-            {uploadedFiles.map((file, index) => (
-              <li
-                key={`${file.name}-${index}`}
-                className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded"
-              >
-                <span className="truncate text-gray-900 dark:text-white">
-                  {file.name}
-                </span>
-                <button
-                  onClick={() => removeFile(index)}
-                  className="text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 text-sm"
+          <div className="max-h-60 overflow-auto">
+            <ul className="space-y-2">
+              {uploadedFiles.map((file, index) => (
+                <li
+                  key={`${file.name}-${index}`}
+                  className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded"
                 >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
+                  <span className="truncate text-gray-900 dark:text-white mr-4">
+                    {file.name}
+                  </span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">
+                      {(file.size / 1024 / 1024).toFixed(1)} MB
+                    </span>
+                    {!isProcessing && (
+                      <button
+                        onClick={() => removeFile(index)}
+                        className="text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 text-sm"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
     </div>
