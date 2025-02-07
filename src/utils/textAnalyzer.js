@@ -10,59 +10,111 @@ export async function analyzeText(documents, keywords, globalSettings) {
   function checkContextMatch(text, position, contextWords, range) {
     if (!contextWords || contextWords.length === 0) return true;
     
-    const words = text.split(' ');
+    const words = text.split(/\s+/);
     const startPos = Math.max(0, position - range);
     const endPos = Math.min(words.length, position + range);
-    const contextText = words.slice(startPos, endPos).join(' ');
+    const contextText = words.slice(startPos, endPos).join(' ').toLowerCase();
     
-    return contextWords.some(word => contextText.toLowerCase().includes(word.toLowerCase()));
+    return contextWords.some(word => contextText.includes(word.toLowerCase()));
   }
 
-  function checkFuzzyMatch(word1, word2, threshold) {
-    if (!threshold || threshold === 0) {
-      return word1.toLowerCase() === word2.toLowerCase(); // Case-insensitive exact match
-    }
-    const similarity = stringSimilarity.compareTwoStrings(word1.toLowerCase(), word2.toLowerCase());
-    return similarity >= threshold;
-  }
-
-  function findExactTextMatches(text, searchTerm, caseSensitive) {
+  function findMatches(text, keyword, settings) {
     const matches = [];
-    let lastIndex = 0;
-    const searchTermToUse = caseSensitive ? searchTerm : searchTerm.toLowerCase();
-    const textToSearch = caseSensitive ? text : text.toLowerCase();
-
-    while ((lastIndex = textToSearch.indexOf(searchTermToUse, lastIndex)) !== -1) {
-      matches.push({
-        index: lastIndex,
-        // Get the actual text from the original case version
-        matchedText: text.slice(lastIndex, lastIndex + searchTerm.length)
-      });
-      lastIndex += 1; // Move to next character to continue search
-    }
-
-    return matches;
-  }
-
-  function findMultiWordMatches(text, searchTerms, caseSensitive) {
-    const matches = [];
+    const searchTerm = settings.caseSensitive ? keyword : keyword.toLowerCase();
+    const searchText = settings.caseSensitive ? text : text.toLowerCase();
     const words = text.split(/\s+/);
-    const searchTermsToUse = caseSensitive ? searchTerms : searchTerms.map(term => term.toLowerCase());
     
-    for (let i = 0; i <= words.length - searchTerms.length; i++) {
-      let matchFound = true;
-      for (let j = 0; j < searchTerms.length; j++) {
-        const wordToCompare = caseSensitive ? words[i + j] : words[i + j].toLowerCase();
-        if (wordToCompare !== searchTermsToUse[j]) {
-          matchFound = false;
-          break;
+    // Function to get word index from character position
+    const getWordIndexFromPosition = (pos) => {
+      const textBefore = text.substring(0, pos);
+      return textBefore.split(/\s+/).length - 1;
+    };
+
+    // For exact text matching
+    if (settings.useExactText) {
+      let lastIndex = 0;
+      while ((lastIndex = searchText.indexOf(searchTerm, lastIndex)) !== -1) {
+        const wordIndex = getWordIndexFromPosition(lastIndex);
+        
+        // Check context requirements
+        const hasValidContext = (
+          checkContextMatch(text, wordIndex, settings.contextBefore?.split(','), settings.contextRange) &&
+          checkContextMatch(text, wordIndex, settings.contextAfter?.split(','), settings.contextRange)
+        );
+
+        if (hasValidContext) {
+          matches.push({
+            position: lastIndex,
+            term: text.slice(lastIndex, lastIndex + keyword.length),
+            wordIndex: wordIndex,
+            similarity: 1
+          });
+        }
+        lastIndex += 1;
+      }
+    } 
+    // For word-based matching (either exact or fuzzy)
+    else {
+      const searchWords = keyword.split(/\s+/);
+      
+      for (let i = 0; i <= words.length - searchWords.length; i++) {
+        let isMatch = false;
+
+        if (settings.useFuzzyMatch) {
+          // Check fuzzy match for each word in the phrase
+          let totalSimilarity = 0;
+          let allWordsMatch = true;
+          
+          for (let j = 0; j < searchWords.length; j++) {
+            const similarity = stringSimilarity.compareTwoStrings(
+              settings.caseSensitive ? words[i + j] : words[i + j].toLowerCase(),
+              settings.caseSensitive ? searchWords[j] : searchWords[j].toLowerCase()
+            );
+            
+            if (similarity < settings.fuzzyMatchThreshold) {
+              allWordsMatch = false;
+              break;
+            }
+            totalSimilarity += similarity;
+          }
+          
+          isMatch = allWordsMatch;
+          if (isMatch) {
+            isMatch = totalSimilarity / searchWords.length >= settings.fuzzyMatchThreshold;
+          }
+        } else {
+          // Exact word match
+          isMatch = searchWords.every((searchWord, j) => {
+            const word = settings.caseSensitive ? words[i + j] : words[i + j].toLowerCase();
+            const term = settings.caseSensitive ? searchWord : searchWord.toLowerCase();
+            return word === term;
+          });
+        }
+
+        if (isMatch) {
+          // Check context requirements
+          const hasValidContext = (
+            checkContextMatch(text, i, settings.contextBefore?.split(','), settings.contextRange) &&
+            checkContextMatch(text, i, settings.contextAfter?.split(','), settings.contextRange)
+          );
+
+          if (hasValidContext) {
+            const matchedPhrase = words.slice(i, i + searchWords.length).join(' ');
+            matches.push({
+              position: text.indexOf(matchedPhrase),
+              term: matchedPhrase,
+              wordIndex: i,
+              similarity: settings.useFuzzyMatch ? 
+                stringSimilarity.compareTwoStrings(
+                  matchedPhrase.toLowerCase(),
+                  keyword.toLowerCase()
+                ) : 1
+            });
+          }
         }
       }
-      if (matchFound) {
-        matches.push(i);
-      }
     }
-    
+
     return matches;
   }
 
@@ -82,105 +134,42 @@ export async function analyzeText(documents, keywords, globalSettings) {
       keywords: {}
     };
 
-    const documentWords = doc.content.split(/\s+/);
-    
     for (const keyword of keywords) {
       if (!keyword.word) continue;
       
-      const searchTerm = keyword.caseSensitive ? keyword.word : keyword.word.toLowerCase();
-      console.log(`Searching for keyword: "${searchTerm}" (case ${keyword.caseSensitive ? 'sensitive' : 'insensitive'})`);
-      
-      const contextBefore = keyword.contextBefore ? 
-        keyword.contextBefore.split(',').map(w => w.trim()).filter(w => w) : [];
-      const contextAfter = keyword.contextAfter ? 
-        keyword.contextAfter.split(',').map(w => w.trim()).filter(w => w) : [];
-      const contextRange = keyword.contextRange || 5;
-      
-      const matches = [];
+      console.log(`Searching for keyword: "${keyword.word}" with settings:`, keyword);
 
-      if (keyword.useExactText) {
-        // For exact text matching
-        const exactMatches = findExactTextMatches(doc.content, keyword.word, keyword.caseSensitive);
-        
-        for (const match of exactMatches) {
-          // Get surrounding context
-          const contextStart = Math.max(0, doc.content.lastIndexOf(' ', match.index) + 1);
-          const contextEnd = doc.content.indexOf(' ', match.index + keyword.word.length);
-          const context = doc.content.slice(
-            Math.max(0, contextStart - 50),
-            contextEnd === -1 ? Math.min(contextEnd + 50, doc.content.length) : contextEnd + 50
-          );
+      const matches = findMatches(doc.content, keyword.word, keyword);
 
-          matches.push({
-            position: match.index,
-            term: match.matchedText,
-            context: context.trim(),
-            wordsBefore: doc.content.slice(Math.max(0, contextStart - 50), match.index).trim(),
-            wordsAfter: doc.content.slice(match.index + keyword.word.length, 
-              contextEnd === -1 ? doc.content.length : contextEnd + 50).trim(),
-            similarity: 1
-          });
-        }
-      } else if (keyword.word.includes(' ')) {
-        // For multi-word phrases
-        const searchTerms = keyword.word.split(/\s+/);
-        const multiWordMatches = findMultiWordMatches(doc.content, searchTerms, keyword.caseSensitive);
+      // Get surrounding context for each match
+      const matchesWithContext = matches.map(match => {
+        const textBefore = doc.content.substring(0, match.position).split(/\s+/).slice(-keyword.contextRange).join(' ');
+        const textAfter = doc.content.substring(match.position + match.term.length).split(/\s+/).slice(0, keyword.contextRange).join(' ');
         
-        for (const wordIndex of multiWordMatches) {
-          const contextStart = Math.max(0, wordIndex - contextRange);
-          const contextEnd = Math.min(documentWords.length, wordIndex + searchTerms.length + contextRange);
-          const context = documentWords.slice(contextStart, contextEnd).join(' ');
-          
-          matches.push({
-            position: wordIndex,
-            term: documentWords.slice(wordIndex, wordIndex + searchTerms.length).join(' '),
-            context,
-            wordsBefore: documentWords.slice(contextStart, wordIndex).join(' '),
-            wordsAfter: documentWords.slice(wordIndex + searchTerms.length, contextEnd).join(' '),
-            similarity: 1
-          });
-        }
-      } else {
-        // Original single-word fuzzy matching logic
-        for (let i = 0; i < documentWords.length; i++) {
-          const currentWord = keyword.caseSensitive ? documentWords[i] : documentWords[i].toLowerCase();
-          
-          const isMatch = keyword.useFuzzyMatch ?
-            checkFuzzyMatch(currentWord, searchTerm, keyword.fuzzyMatchThreshold) :
-            (keyword.caseSensitive ? currentWord === searchTerm : currentWord.toLowerCase() === searchTerm.toLowerCase());
-          
-          if (isMatch) {
-            const hasValidContext = (
-              checkContextMatch(documentWords.join(' '), i, contextBefore, contextRange) &&
-              checkContextMatch(documentWords.join(' '), i, contextAfter, contextRange)
-            );
-            
-            if (hasValidContext) {
-              const contextStart = Math.max(0, i - contextRange);
-              const contextEnd = Math.min(documentWords.length, i + contextRange + 1);
-              const context = documentWords.slice(contextStart, contextEnd).join(' ');
-              
-              matches.push({
-                position: i,
-                term: documentWords[i],
-                context: context,
-                wordsBefore: documentWords.slice(contextStart, i).join(' '),
-                wordsAfter: documentWords.slice(i + 1, contextEnd).join(' '),
-                similarity: keyword.useFuzzyMatch ? 
-                  stringSimilarity.compareTwoStrings(currentWord, searchTerm) : 1
-              });
-            }
-          }
-        }
-      }
+        return {
+          ...match,
+          wordsBefore: textBefore,
+          wordsAfter: textAfter,
+          context: `${textBefore} ${match.term} ${textAfter}`.trim()
+        };
+      });
       
       docResult.keywords[keyword.word] = {
-        count: matches.length,
+        count: matchesWithContext.length,
         category: keyword.category || '',
-        matches: matches
+        matches: matchesWithContext,
+        originalSettings: {
+          caseSensitive: keyword.caseSensitive,
+          useExactText: keyword.useExactText,
+          useFuzzyMatch: keyword.useFuzzyMatch,
+          fuzzyMatchThreshold: keyword.fuzzyMatchThreshold,
+          contextBefore: keyword.contextBefore,
+          contextAfter: keyword.contextAfter,
+          contextRange: keyword.contextRange
+        }
       };
 
-      console.log(`Found ${matches.length} matches for "${searchTerm}" in ${doc.name}`);
+      console.log(`Found ${matchesWithContext.length} matches for "${keyword.word}" in ${doc.name}`);
     }
     
     results.push(docResult);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, ZoomIn, ZoomOut, RefreshCcw } from 'lucide-react';
 
-const WordTree = ({ documents, keyword, onClose }) => {
+const WordTree = ({ analysisResults, keyword, onClose }) => {
   const [selectedDoc, setSelectedDoc] = useState('all');
   const [zoom, setZoom] = useState(1);
   const [treeData, setTreeData] = useState(null);
@@ -10,7 +10,6 @@ const WordTree = ({ documents, keyword, onClose }) => {
   const [hoveredLine, setHoveredLine] = useState(null);
   const containerRef = useRef(null);
 
-  // Previous useEffect hooks remain the same...
   useEffect(() => {
     const handleEscape = (e) => {
       if (e.key === 'Escape') onClose();
@@ -20,7 +19,7 @@ const WordTree = ({ documents, keyword, onClose }) => {
   }, [onClose]);
 
   useEffect(() => {
-    if (!keyword || !documents?.length) return;
+    if (!keyword || !analysisResults?.length) return;
 
     const extractWordTreeData = () => {
       const flows = {
@@ -28,35 +27,35 @@ const WordTree = ({ documents, keyword, onClose }) => {
         documentFlows: {}
       };
 
-      documents.forEach(doc => {
-        if (!doc.content) return;
-
+      analysisResults.forEach(doc => {
+        // Initialize document flows
         flows.documentFlows[doc.id] = {
           instances: [],
-          documentName: doc.name
+          documentName: doc.documentName
         };
 
-        const words = doc.content.toLowerCase()
-          .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()"\n\r]/g, ' ')
-          .split(/\s+/)
-          .filter(word => word.length > 0);
+        // Get matches for this keyword from analysis results
+        const keywordData = doc.keywords[keyword];
+        if (!keywordData || !keywordData.matches) return;
 
-        words.forEach((word, index) => {
-          if (word === keyword.toLowerCase()) {
-            const beforeStart = Math.max(0, index - wordRange);
-            const afterEnd = Math.min(words.length, index + wordRange + 1);
+        // Process each validated match
+        keywordData.matches.forEach(match => {
+          // Split the surrounding context into words
+          const beforeWords = match.wordsBefore.split(/\s+/).filter(w => w.length > 0);
+          const afterWords = match.wordsAfter.split(/\s+/).filter(w => w.length > 0);
 
-            const instance = {
-              before: words.slice(beforeStart, index).join(' '),
-              after: words.slice(index + 1, afterEnd).join(' '),
-              position: index,
-              documentId: doc.id,
-              documentName: doc.name
-            };
+          // Create instance with the actual matched term and its context
+          const instance = {
+            before: beforeWords.slice(-wordRange).join(' '),
+            after: afterWords.slice(0, wordRange).join(' '),
+            term: match.term,
+            position: match.position,
+            documentId: doc.documentId,
+            documentName: doc.documentName
+          };
 
-            flows.instances.push(instance);
-            flows.documentFlows[doc.id].instances.push(instance);
-          }
+          flows.instances.push(instance);
+          flows.documentFlows[doc.id].instances.push(instance);
         });
       });
 
@@ -64,7 +63,7 @@ const WordTree = ({ documents, keyword, onClose }) => {
     };
 
     extractWordTreeData();
-  }, [documents, keyword, wordRange]);
+  }, [analysisResults, keyword, wordRange]);
 
   const renderTree = () => {
     if (!treeData) {
@@ -85,7 +84,7 @@ const WordTree = ({ documents, keyword, onClose }) => {
       return (
         <div className="flex items-center justify-center h-full">
           <p className="text-gray-500 dark:text-gray-400">
-            No matches found for "{keyword}"
+            No validated matches found for "{keyword}"
           </p>
         </div>
       );
@@ -99,11 +98,11 @@ const WordTree = ({ documents, keyword, onClose }) => {
     const centerX = width / 2;
     const centerY = height / 2;
 
-    const lineHeight = 24; // Increased line height
+    const lineHeight = 24;
     const totalHeight = visibleInstances.length * lineHeight;
     const startY = -totalHeight / 2;
-    const lineWidth = 300; // Increased line width for more spacing
-    const textOffset = 40; // Space between lines and text
+    const lineWidth = 300;
+    const textOffset = 40;
 
     return (
       <svg 
@@ -205,7 +204,6 @@ const WordTree = ({ documents, keyword, onClose }) => {
     );
   };
 
-  // Rest of the component remains the same...
   return (
     <div 
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
@@ -248,9 +246,9 @@ const WordTree = ({ documents, keyword, onClose }) => {
                        bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             >
               <option value="all">All Documents</option>
-              {documents.map(doc => (
-                <option key={doc.id} value={doc.id}>
-                  {doc.name}
+              {analysisResults.map(doc => (
+                <option key={doc.documentId} value={doc.documentId}>
+                  {doc.documentName}
                 </option>
               ))}
             </select>

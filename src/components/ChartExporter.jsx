@@ -6,7 +6,6 @@ import html2canvas from 'html2canvas';
 import ReactDOM from 'react-dom';
 
 const ChartExporter = ({ analysisResults }) => {
-  const chartsRef = useRef([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState(null);
@@ -19,6 +18,12 @@ const ChartExporter = ({ analysisResults }) => {
       });
 
       return Array.from(keywords).map(keyword => {
+        // Find the keyword settings from any document that has it
+        const keywordSettings = results.find(doc => doc.keywords[keyword])?.keywords[keyword];
+        const originalSettings = analysisResults.find(doc => 
+          doc.keywords[keyword] && doc.keywords[keyword].originalSettings
+        )?.keywords[keyword].originalSettings;
+
         const data = results.map(doc => ({
           documentName: doc.documentName,
           count: doc.keywords[keyword]?.count || 0
@@ -28,13 +33,168 @@ const ChartExporter = ({ analysisResults }) => {
 
         return {
           keyword,
-          data
+          data,
+          settings: originalSettings || {} // Include the original search settings
         };
       });
     } catch (error) {
       console.error('Error in prepareChartData:', error);
       throw new Error('Failed to prepare chart data: ' + error.message);
     }
+  };
+
+  const createSettingsSummary = (settings) => {
+    const settingsDiv = document.createElement('div');
+    settingsDiv.style.padding = '20px';
+    settingsDiv.style.marginTop = '20px';
+    settingsDiv.style.borderTop = '1px solid #ccc';
+    settingsDiv.style.fontSize = '12px';
+    settingsDiv.style.color = '#000';
+
+    const title = document.createElement('div');
+    title.style.fontSize = '14px';
+    title.style.fontWeight = 'bold';
+    title.style.marginBottom = '10px';
+    title.innerText = 'Search Configuration Details';
+    settingsDiv.appendChild(title);
+
+    const description = document.createElement('div');
+    description.style.marginBottom = '15px';
+    description.style.fontSize = '12px';
+    description.style.color = '#666';
+    description.innerText = 'The following settings were used to configure how matches for this keyword were identified in the documents:';
+    settingsDiv.appendChild(description);
+
+    const createSection = (title) => {
+      const section = document.createElement('div');
+      section.style.marginBottom = '15px';
+      
+      const sectionTitle = document.createElement('div');
+      sectionTitle.style.fontSize = '13px';
+      sectionTitle.style.fontWeight = 'bold';
+      sectionTitle.style.marginBottom = '8px';
+      sectionTitle.style.color = '#2563eb';
+      sectionTitle.innerText = title;
+      section.appendChild(sectionTitle);
+      
+      return section;
+    };
+
+    const addSettingWithDescription = (section, label, value, description) => {
+      const settingDiv = document.createElement('div');
+      settingDiv.style.marginBottom = '8px';
+      
+      const mainInfo = document.createElement('div');
+      mainInfo.style.display = 'flex';
+      mainInfo.style.gap = '8px';
+      mainInfo.style.marginBottom = '3px';
+      
+      const labelSpan = document.createElement('span');
+      labelSpan.style.fontWeight = 'bold';
+      labelSpan.innerText = label + ':';
+      
+      const valueSpan = document.createElement('span');
+      valueSpan.innerText = value;
+      
+      mainInfo.appendChild(labelSpan);
+      mainInfo.appendChild(valueSpan);
+      settingDiv.appendChild(mainInfo);
+
+      if (description) {
+        const descriptionDiv = document.createElement('div');
+        descriptionDiv.style.fontSize = '11px';
+        descriptionDiv.style.color = '#666';
+        descriptionDiv.style.marginLeft = '8px';
+        descriptionDiv.innerText = description;
+        settingDiv.appendChild(descriptionDiv);
+      }
+      
+      section.appendChild(settingDiv);
+    };
+
+    // Basic Matching Section
+    const basicSection = createSection('Basic Matching Configuration');
+    settingsDiv.appendChild(basicSection);
+
+    addSettingWithDescription(
+      basicSection,
+      'Case Sensitivity',
+      settings.caseSensitive ? 'Enabled' : 'Disabled',
+      settings.caseSensitive 
+        ? 'Matches must exactly match the uppercase/lowercase letters in the keyword'
+        : 'Matches can be found regardless of uppercase/lowercase letters'
+    );
+
+    addSettingWithDescription(
+      basicSection,
+      'Exact Text Match',
+      settings.useExactText ? 'Enabled' : 'Disabled',
+      settings.useExactText 
+        ? 'Searches for the exact sequence of characters, even within other words (e.g., will find "NBR" within "NBRTCD")'
+        : 'Searches for the keyword as a complete word'
+    );
+
+    // Fuzzy Matching Section
+    if (settings.useFuzzyMatch) {
+      const fuzzySection = createSection('Fuzzy Matching Settings');
+      settingsDiv.appendChild(fuzzySection);
+
+      addSettingWithDescription(
+        fuzzySection,
+        'Fuzzy Matching',
+        'Enabled',
+        'Allows finding matches with slight spelling variations'
+      );
+
+      addSettingWithDescription(
+        fuzzySection,
+        'Similarity Threshold',
+        settings.fuzzyMatchThreshold.toFixed(2),
+        `Matches must be at least ${(settings.fuzzyMatchThreshold * 100).toFixed(0)}% similar to the keyword. Higher values require closer matches.`
+      );
+    }
+
+    // Context Requirements Section
+    const contextSection = createSection('Context Requirements');
+    settingsDiv.appendChild(contextSection);
+
+    const hasContextRequirements = settings.contextBefore || settings.contextAfter;
+
+    if (hasContextRequirements) {
+      if (settings.contextBefore && settings.contextBefore.length > 0) {
+        addSettingWithDescription(
+          contextSection,
+          'Required Words Before',
+          settings.contextBefore,
+          'At least one of these words must appear before the keyword within the specified range'
+        );
+      }
+
+      if (settings.contextAfter && settings.contextAfter.length > 0) {
+        addSettingWithDescription(
+          contextSection,
+          'Required Words After',
+          settings.contextAfter,
+          'At least one of these words must appear after the keyword within the specified range'
+        );
+      }
+
+      addSettingWithDescription(
+        contextSection,
+        'Context Search Range',
+        `${settings.contextRange} words`,
+        `The required words must appear within ${settings.contextRange} words before or after the keyword`
+      );
+    } else {
+      addSettingWithDescription(
+        contextSection,
+        'Context Requirements',
+        'None',
+        'No specific words were required to appear near the keyword'
+      );
+    }
+
+    return settingsDiv;
   };
 
   const downloadCharts = async () => {
@@ -49,7 +209,7 @@ const ChartExporter = ({ analysisResults }) => {
 
       setProgress({ current: 0, total: chartData.length });
 
-      // Create temporary container for rendering charts
+      // Create temporary container
       const tempContainer = document.createElement('div');
       tempContainer.style.position = 'absolute';
       tempContainer.style.left = '-9999px';
@@ -69,12 +229,12 @@ const ChartExporter = ({ analysisResults }) => {
         // Create a container for the current chart
         const chartContainer = document.createElement('div');
         chartContainer.style.width = '1200px';
-        chartContainer.style.height = '800px';
+        chartContainer.style.height = '900px'; // Increased height for settings
         chartContainer.style.backgroundColor = 'white';
         chartContainer.style.padding = '20px';
         tempContainer.appendChild(chartContainer);
 
-        // Render the title
+        // Add title
         const titleDiv = document.createElement('div');
         titleDiv.style.fontSize = '24px';
         titleDiv.style.fontWeight = 'bold';
@@ -87,14 +247,18 @@ const ChartExporter = ({ analysisResults }) => {
         // Create chart container
         const chartDiv = document.createElement('div');
         chartDiv.style.width = '100%';
-        chartDiv.style.height = 'calc(100% - 60px)';
+        chartDiv.style.height = '600px'; // Reduced height to make room for settings
         chartContainer.appendChild(chartDiv);
 
-        // Render the chart directly without ResponsiveContainer
+        // Add settings summary
+        const settingsDiv = createSettingsSummary(chartData[i].settings);
+        chartContainer.appendChild(settingsDiv);
+
+        // Render the chart
         const chart = (
           <BarChart
             width={1160}
-            height={700}
+            height={580} // Adjusted height
             data={chartData[i].data}
             margin={{
               top: 20,
@@ -138,7 +302,6 @@ const ChartExporter = ({ analysisResults }) => {
         // Wait for render
         await new Promise(resolve => setTimeout(resolve, 100));
 
-        // Capture the chart
         try {
           const canvas = await html2canvas(chartContainer, {
             scale: 2,
@@ -148,12 +311,10 @@ const ChartExporter = ({ analysisResults }) => {
 
           const imgData = canvas.toDataURL('image/jpeg', 1.0);
 
-          // Add a new page for each chart except the first one
           if (i > 0) {
             pdf.addPage();
           }
 
-          // Add image to PDF
           const pdfWidth = pdf.internal.pageSize.getWidth();
           const pdfHeight = pdf.internal.pageSize.getHeight();
           pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
@@ -194,7 +355,6 @@ const ChartExporter = ({ analysisResults }) => {
     );
   }
 
-  // Preview charts in the UI
   return (
     <div className="mt-8">
       <div className="flex justify-between items-center mb-4">

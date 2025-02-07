@@ -237,7 +237,7 @@ const AnalysisResults = ({ results, documents }) => {
 
       {showWordTree && selectedKeyword && (
         <WordTree
-          documents={documents}
+          analysisResults={results}  // Pass the full results instead of documents
           keyword={selectedKeyword}
           onClose={() => {
             setShowWordTree(false);
