@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { Download, ChevronDown, ChevronRight, GitBranch } from 'lucide-react';
 import WordTree from './WordTree';
+import ChartExporter from './ChartExporter';
 
 const AnalysisResults = ({ results, documents }) => {
   const [expandedDocs, setExpandedDocs] = useState(new Set());
@@ -53,7 +54,25 @@ const AnalysisResults = ({ results, documents }) => {
             'Keyword': keyword,
             'Category': data.category,
             'Context': match.context,
+            'Words Before': match.wordsBefore,
+            'Matched Text': match.term,
+            'Words After': match.wordsAfter,
             'Similarity': match.similarity?.toFixed(3) || 'N/A'
+          });
+        });
+      });
+    });
+
+    // Create context analysis sheet
+    const contextData = [];
+    results.forEach(doc => {
+      Object.entries(doc.keywords).forEach(([keyword, data]) => {
+        data.matches.forEach(match => {
+          contextData.push({
+            'Document Name': doc.documentName,
+            'Keyword': keyword,
+            'Full Context': `${match.wordsBefore} [${match.term}] ${match.wordsAfter}`,
+            'Position': match.position
           });
         });
       });
@@ -63,9 +82,24 @@ const AnalysisResults = ({ results, documents }) => {
     const wb = XLSX.utils.book_new();
     const summaryWS = XLSX.utils.json_to_sheet(summaryData);
     const detailedWS = XLSX.utils.json_to_sheet(detailedData);
+    const contextWS = XLSX.utils.json_to_sheet(contextData);
+
+    // Add column widths for better readability
+    const setCellWidths = (worksheet) => {
+      const columnWidths = [];
+      for (let i = 0; i < Object.keys(worksheet).length; i++) {
+        columnWidths.push({ wch: 20 }); // Default width
+      }
+      worksheet['!cols'] = columnWidths;
+    };
+
+    setCellWidths(summaryWS);
+    setCellWidths(detailedWS);
+    setCellWidths(contextWS);
 
     XLSX.utils.book_append_sheet(wb, summaryWS, "Summary");
     XLSX.utils.book_append_sheet(wb, detailedWS, "Detailed Matches");
+    XLSX.utils.book_append_sheet(wb, contextWS, "Context Analysis");
 
     // Save the file
     XLSX.writeFile(wb, "keyword-analysis.xlsx");
@@ -161,14 +195,27 @@ const AnalysisResults = ({ results, documents }) => {
                                     key={idx}
                                     className="text-sm bg-gray-50 dark:bg-gray-700 p-2 rounded"
                                   >
-                                    <div>
-                                      {match.context}
-                                    </div>
-                                    {match.similarity && (
-                                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                        Similarity: {match.similarity.toFixed(3)}
+                                    <div className="flex flex-col">
+                                      <div className="font-medium text-gray-700 dark:text-gray-300">
+                                        Context:
                                       </div>
-                                    )}
+                                      <div className="mt-1">
+                                        <span className="text-gray-600 dark:text-gray-400">
+                                          {match.wordsBefore}
+                                        </span>
+                                        <span className="mx-1 font-bold text-blue-600 dark:text-blue-400">
+                                          {match.term}
+                                        </span>
+                                        <span className="text-gray-600 dark:text-gray-400">
+                                          {match.wordsAfter}
+                                        </span>
+                                      </div>
+                                      {match.similarity && match.similarity !== 1 && (
+                                        <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                          Similarity: {match.similarity.toFixed(3)}
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -184,6 +231,9 @@ const AnalysisResults = ({ results, documents }) => {
           </div>
         ))}
       </div>
+
+      {/* Chart Exporter Component */}
+      <ChartExporter analysisResults={results} />
 
       {showWordTree && selectedKeyword && (
         <WordTree
