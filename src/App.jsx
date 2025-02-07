@@ -5,18 +5,20 @@ import KeywordAnalyzer from './components/KeywordAnalyzer';
 import AnalysisResults from './components/AnalysisResults';
 import { analyzeText } from './utils/textAnalyzer.js';
 import { useDocuments } from './hooks/useDocuments';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 
 function App() {
   const {
     documents,
     isProcessing,
-    progress,  // Added this line
+    progress,
     error,
     processDocuments,
     removeDocument
   } = useDocuments();
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [analysisResults, setAnalysisResults] = useState(null);
+  const [showDocuments, setShowDocuments] = useState(true);
 
   const handleFileUpload = async (files) => {
     console.log('Files received:', files);
@@ -39,47 +41,72 @@ function App() {
       const results = await analyzeText(documents, keywords, globalSettings);
       console.log('Analysis results:', results);
       setAnalysisResults(results);
+      // Automatically hide documents section when analysis is complete
+      setShowDocuments(false);
     } catch (error) {
       console.error('Analysis error:', error);
       alert('Error during analysis: ' + error.message);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 py-8 dark:bg-gray-900">
-      <div className="max-w-7xl mx-auto px-4">
-        <h1 className="text-3xl font-bold text-center mb-8 text-gray-900 dark:text-white">
-          Document Analysis Tool
-        </h1>
-        
-        {/* Fixed PDFUploader component with all required props */}
-        <div className="mb-8"> {/* Added wrapper with margin */}
-          <PDFUploader 
-            onFileUpload={handleFileUpload} 
-            isProcessing={isProcessing}
-            progress={progress}
-          />
+  const documentsSection = (
+    <div className={`transition-all duration-300 ${showDocuments ? 'mb-8' : 'mb-2'}`}>
+      <div 
+        className="flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 p-2 rounded-lg"
+        onClick={() => setShowDocuments(!showDocuments)}
+      >
+        <div className="flex items-center gap-4">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+            Document Management
+          </h2>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            {progress.totalUploaded} document{progress.totalUploaded !== 1 ? 's' : ''} uploaded
+            {progress.totalProcessed > 0 && 
+              ` (${progress.totalProcessed} successfully processed${
+                isProcessing ? `, ${progress.processed} of ${progress.total} in current batch` : ''
+              })`
+            }
+          </div>
         </div>
-        
-        {isProcessing && (
-          <div className="mt-4 text-center text-blue-500 dark:text-blue-400">
-            Processing documents...
-          </div>
+        {showDocuments ? (
+          <ChevronUp className="h-5 w-5 text-gray-500" />
+        ) : (
+          <ChevronDown className="h-5 w-5 text-gray-500" />
         )}
-        
-        {error && (
-          <div className="mt-4 text-center text-red-500 dark:text-red-400">
-            Error: {error}
-          </div>
-        )}
+      </div>
 
-        {/* Rest of your components remain the same */}
-        {documents.length > 0 && (
-          <>
+      {showDocuments && (
+        <>
+          <div className="mb-8">
+            <PDFUploader 
+              onFileUpload={handleFileUpload} 
+              isProcessing={isProcessing}
+              progress={progress}
+            />
+          </div>
+          
+          {isProcessing && (
+            <div className="mt-4 text-center text-blue-500 dark:text-blue-400">
+              Processing documents...
+            </div>
+          )}
+          
+          {error && (
+            <div className="mt-4 text-center text-red-500 dark:text-red-400">
+              Error: {error}
+            </div>
+          )}
+
+          {documents.length > 0 && (
             <div className="mt-8">
-              <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
-                Processed Documents
-              </h2>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Processed Documents
+                </h2>
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  {documents.length} document{documents.length !== 1 ? 's' : ''} ready for analysis
+                </div>
+              </div>
               <div className="space-y-4">
                 {documents.map(doc => (
                   <div 
@@ -114,7 +141,23 @@ function App() {
                 ))}
               </div>
             </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 
+  return (
+    <div className="min-h-screen bg-gray-50 py-8 dark:bg-gray-900">
+      <div className="max-w-7xl mx-auto px-4">
+        <h1 className="text-3xl font-bold text-center mb-8 text-gray-900 dark:text-white">
+          Document Analysis Tool
+        </h1>
+        
+        {documentsSection}
+
+        {documents.length > 0 && (
+          <>
             <KeywordAnalyzer 
               documents={documents}
               onAnalyze={handleAnalyze}

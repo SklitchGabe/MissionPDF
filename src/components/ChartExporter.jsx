@@ -45,154 +45,152 @@ const ChartExporter = ({ analysisResults }) => {
 
   const createSettingsSummary = (settings) => {
     const settingsDiv = document.createElement('div');
-    settingsDiv.style.padding = '20px';
-    settingsDiv.style.marginTop = '20px';
+    settingsDiv.style.padding = '10px 20px';
+    settingsDiv.style.marginTop = '10px';
     settingsDiv.style.borderTop = '1px solid #ccc';
-    settingsDiv.style.fontSize = '12px';
+    settingsDiv.style.fontSize = '10px'; // Slightly smaller font
     settingsDiv.style.color = '#000';
+    settingsDiv.style.maxHeight = '200px'; // Control maximum height
 
     const title = document.createElement('div');
-    title.style.fontSize = '14px';
+    title.style.fontSize = '12px';
     title.style.fontWeight = 'bold';
-    title.style.marginBottom = '10px';
+    title.style.marginBottom = '8px';
     title.innerText = 'Search Configuration Details';
     settingsDiv.appendChild(title);
 
-    const description = document.createElement('div');
-    description.style.marginBottom = '15px';
-    description.style.fontSize = '12px';
-    description.style.color = '#666';
-    description.innerText = 'The following settings were used to configure how matches for this keyword were identified in the documents:';
-    settingsDiv.appendChild(description);
+    // Create two-column layout
+    const grid = document.createElement('div');
+    grid.style.display = 'grid';
+    grid.style.gridTemplateColumns = '1fr 1fr';
+    grid.style.gap = '15px';
+    grid.style.width = '100%';
 
-    const createSection = (title) => {
-      const section = document.createElement('div');
-      section.style.marginBottom = '15px';
-      
-      const sectionTitle = document.createElement('div');
-      sectionTitle.style.fontSize = '13px';
-      sectionTitle.style.fontWeight = 'bold';
-      sectionTitle.style.marginBottom = '8px';
-      sectionTitle.style.color = '#2563eb';
-      sectionTitle.innerText = title;
-      section.appendChild(sectionTitle);
-      
-      return section;
-    };
+    // Create left column (Basic and Fuzzy settings)
+    const leftColumn = document.createElement('div');
+    
+    // Basic Settings Section
+    const basicSettings = document.createElement('div');
+    basicSettings.style.marginBottom = '10px';
+    
+    const basicTitle = document.createElement('div');
+    basicTitle.style.fontSize = '11px';
+    basicTitle.style.fontWeight = 'bold';
+    basicTitle.style.color = '#2563eb';
+    basicTitle.style.marginBottom = '5px';
+    basicTitle.innerText = 'Basic Matching Settings';
+    basicSettings.appendChild(basicTitle);
 
-    const addSettingWithDescription = (section, label, value, description) => {
-      const settingDiv = document.createElement('div');
-      settingDiv.style.marginBottom = '8px';
-      
-      const mainInfo = document.createElement('div');
-      mainInfo.style.display = 'flex';
-      mainInfo.style.gap = '8px';
-      mainInfo.style.marginBottom = '3px';
-      
-      const labelSpan = document.createElement('span');
-      labelSpan.style.fontWeight = 'bold';
-      labelSpan.innerText = label + ':';
-      
-      const valueSpan = document.createElement('span');
-      valueSpan.innerText = value;
-      
-      mainInfo.appendChild(labelSpan);
-      mainInfo.appendChild(valueSpan);
-      settingDiv.appendChild(mainInfo);
+    // Add Case Sensitivity setting
+    const caseSetting = document.createElement('div');
+    caseSetting.style.marginBottom = '5px';
+    caseSetting.innerHTML = `
+      <div style="font-weight: bold;">Case Sensitivity: ${settings.caseSensitive ? 'Enabled' : 'Disabled'}</div>
+      <div style="color: #666; font-size: 9px; margin-left: 8px;">
+        ${settings.caseSensitive 
+          ? 'Matches must exactly match the uppercase/lowercase letters'
+          : 'Matches can be found regardless of letter case'}
+      </div>
+    `;
+    basicSettings.appendChild(caseSetting);
 
-      if (description) {
-        const descriptionDiv = document.createElement('div');
-        descriptionDiv.style.fontSize = '11px';
-        descriptionDiv.style.color = '#666';
-        descriptionDiv.style.marginLeft = '8px';
-        descriptionDiv.innerText = description;
-        settingDiv.appendChild(descriptionDiv);
-      }
-      
-      section.appendChild(settingDiv);
-    };
+    // Add Exact Text setting
+    const exactSetting = document.createElement('div');
+    exactSetting.style.marginBottom = '5px';
+    exactSetting.innerHTML = `
+      <div style="font-weight: bold;">Exact Text Match: ${settings.useExactText ? 'Enabled' : 'Disabled'}</div>
+      <div style="color: #666; font-size: 9px; margin-left: 8px;">
+        ${settings.useExactText 
+          ? 'Finds exact character sequences, even within words'
+          : 'Matches complete words only'}
+      </div>
+    `;
+    basicSettings.appendChild(exactSetting);
 
-    // Basic Matching Section
-    const basicSection = createSection('Basic Matching Configuration');
-    settingsDiv.appendChild(basicSection);
+    leftColumn.appendChild(basicSettings);
 
-    addSettingWithDescription(
-      basicSection,
-      'Case Sensitivity',
-      settings.caseSensitive ? 'Enabled' : 'Disabled',
-      settings.caseSensitive 
-        ? 'Matches must exactly match the uppercase/lowercase letters in the keyword'
-        : 'Matches can be found regardless of uppercase/lowercase letters'
-    );
-
-    addSettingWithDescription(
-      basicSection,
-      'Exact Text Match',
-      settings.useExactText ? 'Enabled' : 'Disabled',
-      settings.useExactText 
-        ? 'Searches for the exact sequence of characters, even within other words (e.g., will find "NBR" within "NBRTCD")'
-        : 'Searches for the keyword as a complete word'
-    );
-
-    // Fuzzy Matching Section
+    // Fuzzy Matching Section (if enabled)
     if (settings.useFuzzyMatch) {
-      const fuzzySection = createSection('Fuzzy Matching Settings');
-      settingsDiv.appendChild(fuzzySection);
+      const fuzzySettings = document.createElement('div');
+      fuzzySettings.style.marginBottom = '10px';
+      
+      const fuzzyTitle = document.createElement('div');
+      fuzzyTitle.style.fontSize = '11px';
+      fuzzyTitle.style.fontWeight = 'bold';
+      fuzzyTitle.style.color = '#2563eb';
+      fuzzyTitle.style.marginBottom = '5px';
+      fuzzyTitle.innerText = 'Fuzzy Matching Settings';
+      fuzzySettings.appendChild(fuzzyTitle);
 
-      addSettingWithDescription(
-        fuzzySection,
-        'Fuzzy Matching',
-        'Enabled',
-        'Allows finding matches with slight spelling variations'
-      );
-
-      addSettingWithDescription(
-        fuzzySection,
-        'Similarity Threshold',
-        settings.fuzzyMatchThreshold.toFixed(2),
-        `Matches must be at least ${(settings.fuzzyMatchThreshold * 100).toFixed(0)}% similar to the keyword. Higher values require closer matches.`
-      );
+      fuzzySettings.innerHTML += `
+        <div style="margin-bottom: 5px;">
+          <div style="font-weight: bold;">Similarity Threshold: ${(settings.fuzzyMatchThreshold * 100).toFixed(0)}%</div>
+          <div style="color: #666; font-size: 9px; margin-left: 8px;">
+            Matches must be at least ${(settings.fuzzyMatchThreshold * 100).toFixed(0)}% similar
+          </div>
+        </div>
+      `;
+      
+      leftColumn.appendChild(fuzzySettings);
     }
 
-    // Context Requirements Section
-    const contextSection = createSection('Context Requirements');
-    settingsDiv.appendChild(contextSection);
+    // Create right column (Context settings)
+    const rightColumn = document.createElement('div');
+    
+    const contextTitle = document.createElement('div');
+    contextTitle.style.fontSize = '11px';
+    contextTitle.style.fontWeight = 'bold';
+    contextTitle.style.color = '#2563eb';
+    contextTitle.style.marginBottom = '5px';
+    contextTitle.innerText = 'Context Requirements';
+    rightColumn.appendChild(contextTitle);
 
-    const hasContextRequirements = settings.contextBefore || settings.contextAfter;
-
-    if (hasContextRequirements) {
-      if (settings.contextBefore && settings.contextBefore.length > 0) {
-        addSettingWithDescription(
-          contextSection,
-          'Required Words Before',
-          settings.contextBefore,
-          'At least one of these words must appear before the keyword within the specified range'
-        );
+    if (settings.contextBefore || settings.contextAfter) {
+      if (settings.contextBefore) {
+        const beforeSetting = document.createElement('div');
+        beforeSetting.style.marginBottom = '5px';
+        beforeSetting.innerHTML = `
+          <div style="font-weight: bold;">Required Words Before:</div>
+          <div style="color: #666; font-size: 9px; margin-left: 8px;">
+            Words required before: ${settings.contextBefore}
+          </div>
+        `;
+        rightColumn.appendChild(beforeSetting);
       }
 
-      if (settings.contextAfter && settings.contextAfter.length > 0) {
-        addSettingWithDescription(
-          contextSection,
-          'Required Words After',
-          settings.contextAfter,
-          'At least one of these words must appear after the keyword within the specified range'
-        );
+      if (settings.contextAfter) {
+        const afterSetting = document.createElement('div');
+        afterSetting.style.marginBottom = '5px';
+        afterSetting.innerHTML = `
+          <div style="font-weight: bold;">Required Words After:</div>
+          <div style="color: #666; font-size: 9px; margin-left: 8px;">
+            Words required after: ${settings.contextAfter}
+          </div>
+        `;
+        rightColumn.appendChild(afterSetting);
       }
 
-      addSettingWithDescription(
-        contextSection,
-        'Context Search Range',
-        `${settings.contextRange} words`,
-        `The required words must appear within ${settings.contextRange} words before or after the keyword`
-      );
+      const rangeSetting = document.createElement('div');
+      rangeSetting.style.marginBottom = '5px';
+      rangeSetting.innerHTML = `
+        <div style="font-weight: bold;">Search Range: ${settings.contextRange} words</div>
+        <div style="color: #666; font-size: 9px; margin-left: 8px;">
+          Required words must appear within this distance
+        </div>
+      `;
+      rightColumn.appendChild(rangeSetting);
     } else {
-      addSettingWithDescription(
-        contextSection,
-        'Context Requirements',
-        'None',
-        'No specific words were required to appear near the keyword'
-      );
+      const noContext = document.createElement('div');
+      noContext.style.color = '#666';
+      noContext.style.fontSize = '9px';
+      noContext.innerText = 'No specific context requirements set';
+      rightColumn.appendChild(noContext);
     }
+
+    // Add columns to grid
+    grid.appendChild(leftColumn);
+    grid.appendChild(rightColumn);
+    settingsDiv.appendChild(grid);
 
     return settingsDiv;
   };
@@ -229,7 +227,7 @@ const ChartExporter = ({ analysisResults }) => {
         // Create a container for the current chart
         const chartContainer = document.createElement('div');
         chartContainer.style.width = '1200px';
-        chartContainer.style.height = '900px'; // Increased height for settings
+        chartContainer.style.height = '700px'; // Reduced from 800px
         chartContainer.style.backgroundColor = 'white';
         chartContainer.style.padding = '20px';
         tempContainer.appendChild(chartContainer);
@@ -244,10 +242,10 @@ const ChartExporter = ({ analysisResults }) => {
         titleDiv.innerText = `Frequency Distribution: "${chartData[i].keyword}"`;
         chartContainer.appendChild(titleDiv);
 
-        // Create chart container
+        // Create chart container with updated height
         const chartDiv = document.createElement('div');
         chartDiv.style.width = '100%';
-        chartDiv.style.height = '600px'; // Reduced height to make room for settings
+        chartDiv.style.height = 'calc(100% - 250px)'; // Leave more room for settings
         chartContainer.appendChild(chartDiv);
 
         // Add settings summary
@@ -258,13 +256,13 @@ const ChartExporter = ({ analysisResults }) => {
         const chart = (
           <BarChart
             width={1160}
-            height={580} // Adjusted height
+            height={580}
             data={chartData[i].data}
             margin={{
               top: 20,
               right: 30,
               left: 150,
-              bottom: 100
+              bottom: 140  // Increased bottom margin for rotated labels
             }}
           >
             <CartesianGrid strokeDasharray="3 3" />
@@ -273,8 +271,16 @@ const ChartExporter = ({ analysisResults }) => {
               interval={0}
               angle={-45}
               textAnchor="end"
-              height={100}
-              tick={{ fontSize: 12 }}
+              height={130}  // Increased height for labels
+              tick={{
+                fontSize: 8,  // Smaller font size
+                dy: 8,      // Adjust vertical position of labels
+                dx: -8      // Adjust horizontal position of labels
+              }}
+              tickFormatter={(value) => {
+                // Truncate long document names
+                return value.length > 30 ? value.substring(0, 27) + '...' : value;
+              }}
             />
             <YAxis
               label={{ 
@@ -283,9 +289,12 @@ const ChartExporter = ({ analysisResults }) => {
                 position: 'insideLeft',
                 style: { textAnchor: 'middle' }
               }}
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: 10 }}
             />
-            <Tooltip />
+            <Tooltip 
+              formatter={(value, name, props) => [value, 'Matches']}
+              labelFormatter={(label) => `Document: ${label}`}
+            />
             <Bar
               dataKey="count"
               fill="#2563eb"

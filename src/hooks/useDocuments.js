@@ -6,7 +6,12 @@ const BATCH_SIZE = 5; // Process 5 PDFs at a time
 export function useDocuments() {
   const [documents, setDocuments] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [progress, setProgress] = useState({ processed: 0, total: 0 });
+  const [progress, setProgress] = useState({ 
+    processed: 0,        // Current batch progress
+    total: 0,           // Current batch total
+    totalProcessed: 0,  // Cumulative total processed across all batches
+    totalUploaded: 0    // Cumulative total uploaded across all batches
+  });
   const [error, setError] = useState(null);
 
   const processBatch = async (files, startIndex) => {
@@ -38,10 +43,11 @@ export function useDocuments() {
     // Update state with new documents
     setDocuments(prev => [...prev, ...validDocs]);
     
-    // Update progress
+    // Update progress for both current batch and total
     setProgress(prev => ({
       ...prev,
-      processed: prev.processed + currentBatch.length
+      processed: prev.processed + currentBatch.length,
+      totalProcessed: prev.totalProcessed + validDocs.length
     }));
 
     // Process next batch if there are more files
@@ -53,7 +59,12 @@ export function useDocuments() {
   const processDocuments = useCallback(async (files) => {
     setIsProcessing(true);
     setError(null);
-    setProgress({ processed: 0, total: files.length });
+    setProgress(prev => ({ 
+      processed: 0,
+      total: files.length,
+      totalProcessed: prev.totalProcessed, // Maintain cumulative processed count
+      totalUploaded: prev.totalUploaded + files.length // Add new files to total uploaded
+    }));
 
     try {
       await processBatch(files, 0);
@@ -61,11 +72,26 @@ export function useDocuments() {
       setError(err.message);
     } finally {
       setIsProcessing(false);
+      // Reset current batch progress but maintain totals
+      setProgress(prev => ({
+        ...prev,
+        processed: 0,
+        total: 0
+      }));
     }
   }, []);
 
   const removeDocument = useCallback((documentId) => {
-    setDocuments(prev => prev.filter(doc => doc.id !== documentId));
+    setDocuments(prev => {
+      const newDocs = prev.filter(doc => doc.id !== documentId);
+      // Update total counts when a document is removed
+      setProgress(prev => ({
+        ...prev,
+        totalProcessed: Math.max(0, prev.totalProcessed - 1),
+        totalUploaded: Math.max(0, prev.totalUploaded - 1)
+      }));
+      return newDocs;
+    });
   }, []);
 
   return {
