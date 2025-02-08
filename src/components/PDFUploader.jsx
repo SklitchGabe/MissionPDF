@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
-import { Upload, AlertTriangle } from 'lucide-react';
+import { Upload, AlertTriangle, Loader2 } from 'lucide-react';
 
-const PDFUploader = ({ onFileUpload, isProcessing, progress }) => {
+const PDFUploader = ({ onFileUpload, isProcessing, progress, failedUploads = [], reprocessFailedUploads }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [warning, setWarning] = useState(null);
@@ -18,9 +18,9 @@ const PDFUploader = ({ onFileUpload, isProcessing, progress }) => {
 
   const processFiles = useCallback((files) => {
     // 200MB per file
-    const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
+    const MAX_FILE_SIZE = 200 * 1024 * 1024;
     // 2GB total
-    const MAX_TOTAL_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
+    const MAX_TOTAL_SIZE = 2 * 1024 * 1024 * 1024;
 
     const pdfFiles = Array.from(files).filter(file => 
       file.type === 'application/pdf'
@@ -48,7 +48,7 @@ const PDFUploader = ({ onFileUpload, isProcessing, progress }) => {
     setUploadedFiles(prev => [...prev, ...pdfFiles]);
     setWarning(null);
     onFileUpload(pdfFiles);
-}, [onFileUpload]);
+  }, [onFileUpload]);
 
   const handleDrop = useCallback((e) => {
     e.preventDefault();
@@ -116,6 +116,35 @@ const PDFUploader = ({ onFileUpload, isProcessing, progress }) => {
           </div>
         )}
       </div>
+
+      {/* Failed Uploads Section */}
+      {failedUploads.length > 0 && (
+        <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-red-600 dark:text-red-400 font-semibold">
+              Failed Uploads ({failedUploads.length})
+            </h3>
+            <button
+              onClick={reprocessFailedUploads}
+              disabled={isProcessing}
+              className="text-sm bg-red-100 dark:bg-red-800 text-red-600 dark:text-red-300 px-3 py-1 rounded-md hover:bg-red-200 dark:hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              {isProcessing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              Retry Failed Uploads
+            </button>
+          </div>
+          <ul className="space-y-1">
+            {failedUploads.map((file, index) => (
+              <li key={index} className="text-sm text-red-600 dark:text-red-400 flex items-center justify-between">
+                <span>{file.name}</span>
+                <span>{(file.size / 1024 / 1024).toFixed(2)} MB</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {uploadedFiles.length > 0 && (
         <div className="mt-4">

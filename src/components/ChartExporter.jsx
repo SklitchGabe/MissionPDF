@@ -1,9 +1,10 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { Download, Loader } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import ReactDOM from 'react-dom';
+import Logger from '../utils/logger';
 
 const ChartExporter = ({ analysisResults }) => {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -11,35 +12,50 @@ const ChartExporter = ({ analysisResults }) => {
   const [error, setError] = useState(null);
 
   const prepareChartData = (results) => {
+    if (!results || !Array.isArray(results)) {
+      return [];
+    }
+
     try {
-      const keywords = new Set();
+      // Create a map of unique keyword configurations
+      const uniqueConfigs = new Map();
       results.forEach(doc => {
-        Object.keys(doc.keywords).forEach(keyword => keywords.add(keyword));
+        Object.entries(doc.keywords).forEach(([_, data]) => {
+          const key = `${data.word}_${JSON.stringify(data.originalSettings)}`;
+          if (!uniqueConfigs.has(key)) {
+            uniqueConfigs.set(key, {
+              keyword: data.word,
+              settings: data.originalSettings,
+              category: data.category
+            });
+          }
+        });
       });
 
-      return Array.from(keywords).map(keyword => {
-        // Find the keyword settings from any document that has it
-        const keywordSettings = results.find(doc => doc.keywords[keyword])?.keywords[keyword];
-        const originalSettings = analysisResults.find(doc => 
-          doc.keywords[keyword] && doc.keywords[keyword].originalSettings
-        )?.keywords[keyword].originalSettings;
+      return Array.from(uniqueConfigs.entries()).map(([key, config]) => {
+        const data = results.map(doc => {
+          const keywordData = Object.values(doc.keywords).find(data => 
+            `${data.word}_${JSON.stringify(data.originalSettings)}` === key
+          );
 
-        const data = results.map(doc => ({
-          documentName: doc.documentName,
-          count: doc.keywords[keyword]?.count || 0
-        }))
+          return {
+            documentName: doc.documentName,
+            count: keywordData?.count || 0
+          };
+        })
         .sort((a, b) => b.count - a.count)
         .filter(item => item.count > 0);
 
         return {
-          keyword,
-          data,
-          settings: originalSettings || {} // Include the original search settings
+          keyword: config.keyword,
+          settings: config.settings,
+          category: config.category,
+          data
         };
       });
     } catch (error) {
-      console.error('Error in prepareChartData:', error);
-      throw new Error('Failed to prepare chart data: ' + error.message);
+      Logger.error('ChartExporter', 'Error in prepareChartData:', error);
+      return [];
     }
   };
 
@@ -48,9 +64,9 @@ const ChartExporter = ({ analysisResults }) => {
     settingsDiv.style.padding = '10px 20px';
     settingsDiv.style.marginTop = '10px';
     settingsDiv.style.borderTop = '1px solid #ccc';
-    settingsDiv.style.fontSize = '10px'; // Slightly smaller font
+    settingsDiv.style.fontSize = '10px';
     settingsDiv.style.color = '#000';
-    settingsDiv.style.maxHeight = '200px'; // Control maximum height
+    settingsDiv.style.maxHeight = '200px';
 
     const title = document.createElement('div');
     title.style.fontSize = '12px';
@@ -66,7 +82,7 @@ const ChartExporter = ({ analysisResults }) => {
     grid.style.gap = '15px';
     grid.style.width = '100%';
 
-    // Create left column (Basic and Fuzzy settings)
+    // Left column - Basic and Fuzzy settings
     const leftColumn = document.createElement('div');
     
     // Basic Settings Section
@@ -81,35 +97,27 @@ const ChartExporter = ({ analysisResults }) => {
     basicTitle.innerText = 'Basic Matching Settings';
     basicSettings.appendChild(basicTitle);
 
-    // Add Case Sensitivity setting
-    const caseSetting = document.createElement('div');
-    caseSetting.style.marginBottom = '5px';
-    caseSetting.innerHTML = `
-      <div style="font-weight: bold;">Case Sensitivity: ${settings.caseSensitive ? 'Enabled' : 'Disabled'}</div>
-      <div style="color: #666; font-size: 9px; margin-left: 8px;">
-        ${settings.caseSensitive 
-          ? 'Matches must exactly match the uppercase/lowercase letters'
-          : 'Matches can be found regardless of letter case'}
+    basicSettings.innerHTML += `
+      <div style="margin-bottom: 5px;">
+        <div style="font-weight: bold;">Case Sensitivity: ${settings.caseSensitive ? 'Enabled' : 'Disabled'}</div>
+        <div style="color: #666; font-size: 9px; margin-left: 8px;">
+          ${settings.caseSensitive ? 
+            'Matches must exactly match the uppercase/lowercase letters' : 
+            'Matches can be found regardless of letter case'}
+        </div>
+      </div>
+      <div style="margin-bottom: 5px;">
+        <div style="font-weight: bold;">Exact Text Match: ${settings.useExactText ? 'Enabled' : 'Disabled'}</div>
+        <div style="color: #666; font-size: 9px; margin-left: 8px;">
+          ${settings.useExactText ? 
+            'Finds exact character sequences, even within words' : 
+            'Matches complete words only'}
+        </div>
       </div>
     `;
-    basicSettings.appendChild(caseSetting);
-
-    // Add Exact Text setting
-    const exactSetting = document.createElement('div');
-    exactSetting.style.marginBottom = '5px';
-    exactSetting.innerHTML = `
-      <div style="font-weight: bold;">Exact Text Match: ${settings.useExactText ? 'Enabled' : 'Disabled'}</div>
-      <div style="color: #666; font-size: 9px; margin-left: 8px;">
-        ${settings.useExactText 
-          ? 'Finds exact character sequences, even within words'
-          : 'Matches complete words only'}
-      </div>
-    `;
-    basicSettings.appendChild(exactSetting);
-
     leftColumn.appendChild(basicSettings);
 
-    // Fuzzy Matching Section (if enabled)
+    // Fuzzy Matching Section
     if (settings.useFuzzyMatch) {
       const fuzzySettings = document.createElement('div');
       fuzzySettings.style.marginBottom = '10px';
@@ -134,7 +142,7 @@ const ChartExporter = ({ analysisResults }) => {
       leftColumn.appendChild(fuzzySettings);
     }
 
-    // Create right column (Context settings)
+    // Right column - Context settings
     const rightColumn = document.createElement('div');
     
     const contextTitle = document.createElement('div');
@@ -147,44 +155,41 @@ const ChartExporter = ({ analysisResults }) => {
 
     if (settings.contextBefore || settings.contextAfter) {
       if (settings.contextBefore) {
-        const beforeSetting = document.createElement('div');
-        beforeSetting.style.marginBottom = '5px';
-        beforeSetting.innerHTML = `
-          <div style="font-weight: bold;">Required Words Before:</div>
-          <div style="color: #666; font-size: 9px; margin-left: 8px;">
-            Words required before: ${settings.contextBefore}
+        rightColumn.innerHTML += `
+          <div style="margin-bottom: 5px;">
+            <div style="font-weight: bold;">Required Words Before:</div>
+            <div style="color: #666; font-size: 9px; margin-left: 8px;">
+              ${settings.contextBefore}
+            </div>
           </div>
         `;
-        rightColumn.appendChild(beforeSetting);
       }
 
       if (settings.contextAfter) {
-        const afterSetting = document.createElement('div');
-        afterSetting.style.marginBottom = '5px';
-        afterSetting.innerHTML = `
-          <div style="font-weight: bold;">Required Words After:</div>
-          <div style="color: #666; font-size: 9px; margin-left: 8px;">
-            Words required after: ${settings.contextAfter}
+        rightColumn.innerHTML += `
+          <div style="margin-bottom: 5px;">
+            <div style="font-weight: bold;">Required Words After:</div>
+            <div style="color: #666; font-size: 9px; margin-left: 8px;">
+              ${settings.contextAfter}
+            </div>
           </div>
         `;
-        rightColumn.appendChild(afterSetting);
       }
 
-      const rangeSetting = document.createElement('div');
-      rangeSetting.style.marginBottom = '5px';
-      rangeSetting.innerHTML = `
-        <div style="font-weight: bold;">Search Range: ${settings.contextRange} words</div>
-        <div style="color: #666; font-size: 9px; margin-left: 8px;">
-          Required words must appear within this distance
+      rightColumn.innerHTML += `
+        <div style="margin-bottom: 5px;">
+          <div style="font-weight: bold;">Search Range: ${settings.contextRange} words</div>
+          <div style="color: #666; font-size: 9px; margin-left: 8px;">
+            Required words must appear within this distance
+          </div>
         </div>
       `;
-      rightColumn.appendChild(rangeSetting);
     } else {
-      const noContext = document.createElement('div');
-      noContext.style.color = '#666';
-      noContext.style.fontSize = '9px';
-      noContext.innerText = 'No specific context requirements set';
-      rightColumn.appendChild(noContext);
+      rightColumn.innerHTML += `
+        <div style="color: #666; font-size: 9px;">
+          No specific context requirements set
+        </div>
+      `;
     }
 
     // Add columns to grid
@@ -202,7 +207,7 @@ const ChartExporter = ({ analysisResults }) => {
 
       const chartData = prepareChartData(analysisResults);
       if (chartData.length === 0) {
-        throw new Error('No chart data available to generate');
+        throw new Error('No chart data available');
       }
 
       setProgress({ current: 0, total: chartData.length });
@@ -211,7 +216,6 @@ const ChartExporter = ({ analysisResults }) => {
       const tempContainer = document.createElement('div');
       tempContainer.style.position = 'absolute';
       tempContainer.style.left = '-9999px';
-      tempContainer.style.top = '0';
       document.body.appendChild(tempContainer);
 
       // Create PDF
@@ -224,10 +228,9 @@ const ChartExporter = ({ analysisResults }) => {
       for (let i = 0; i < chartData.length; i++) {
         setProgress(prev => ({ ...prev, current: i + 1 }));
 
-        // Create a container for the current chart
         const chartContainer = document.createElement('div');
         chartContainer.style.width = '1200px';
-        chartContainer.style.height = '700px'; // Reduced from 800px
+        chartContainer.style.height = '700px';
         chartContainer.style.backgroundColor = 'white';
         chartContainer.style.padding = '20px';
         tempContainer.appendChild(chartContainer);
@@ -242,27 +245,27 @@ const ChartExporter = ({ analysisResults }) => {
         titleDiv.innerText = `Frequency Distribution: "${chartData[i].keyword}"`;
         chartContainer.appendChild(titleDiv);
 
-        // Create chart container with updated height
+        // Chart container
         const chartDiv = document.createElement('div');
         chartDiv.style.width = '100%';
-        chartDiv.style.height = 'calc(100% - 250px)'; // Leave more room for settings
+        chartDiv.style.height = 'calc(100% - 250px)';
         chartContainer.appendChild(chartDiv);
 
-        // Add settings summary
+        // Settings summary
         const settingsDiv = createSettingsSummary(chartData[i].settings);
         chartContainer.appendChild(settingsDiv);
 
-        // Render the chart
+        // Render chart
         const chart = (
           <BarChart
             width={1160}
-            height={580}
+            height={480}
             data={chartData[i].data}
             margin={{
               top: 20,
               right: 30,
               left: 150,
-              bottom: 140  // Increased bottom margin for rotated labels
+              bottom: 140
             }}
           >
             <CartesianGrid strokeDasharray="3 3" />
@@ -271,14 +274,13 @@ const ChartExporter = ({ analysisResults }) => {
               interval={0}
               angle={-45}
               textAnchor="end"
-              height={130}  // Increased height for labels
+              height={130}
               tick={{
-                fontSize: 8,  // Smaller font size
-                dy: 8,      // Adjust vertical position of labels
-                dx: -8      // Adjust horizontal position of labels
+                fontSize: 8,
+                dy: 8,
+                dx: -8
               }}
               tickFormatter={(value) => {
-                // Truncate long document names
                 return value.length > 30 ? value.substring(0, 27) + '...' : value;
               }}
             />
@@ -303,12 +305,10 @@ const ChartExporter = ({ analysisResults }) => {
           </BarChart>
         );
 
-        // Render the chart
         const root = document.createElement('div');
         chartDiv.appendChild(root);
         ReactDOM.render(chart, root);
 
-        // Wait for render
         await new Promise(resolve => setTimeout(resolve, 100));
 
         try {
@@ -328,78 +328,203 @@ const ChartExporter = ({ analysisResults }) => {
           const pdfHeight = pdf.internal.pageSize.getHeight();
           pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
 
-          // Clean up
+          // Cleanup
           chartDiv.removeChild(root);
           chartContainer.remove();
 
         } catch (error) {
-          console.error(`Error processing chart ${i + 1}:`, error);
+          Logger.error('ChartExporter', `Error processing chart ${i + 1}:`, error);
           throw new Error(`Failed to process chart ${i + 1}: ${error.message}`);
         }
       }
 
-      // Clean up temporary container
       document.body.removeChild(tempContainer);
-
-      // Save the PDF
       pdf.save('keyword-frequency-charts.pdf');
+      Logger.info('ChartExporter', 'Charts exported successfully');
 
     } catch (error) {
-      console.error('Error in downloadCharts:', error);
-      setError(error.message || 'An unknown error occurred');
-      alert(`Error generating charts: ${error.message}`);
+      Logger.error('ChartExporter', 'Error generating charts:', error);
+      setError(error.message);
     } finally {
       setIsGenerating(false);
       setProgress({ current: 0, total: 0 });
     }
   };
 
-  const chartData = prepareChartData(analysisResults);
-
-  if (chartData.length === 0) {
-    return (
-      <div className="mt-8 text-gray-600 dark:text-gray-400">
-        No chart data available. Make sure there are keywords with matches.
-      </div>
-    );
-  }
-
   return (
-    <div className="mt-8">
+    <div className="w-full">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+        <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
           Frequency Charts
         </h3>
         <div className="flex items-center gap-4">
           {isGenerating && (
             <div className="flex items-center gap-2 text-blue-500 dark:text-blue-400">
-              <Loader className="h-4 w-4 animate-spin" />
-              <span>
+              <Loader className="h-5 w-5 animate-spin" />
+              <span className="text-lg">
                 Generating charts ({progress.current} of {progress.total})...
               </span>
             </div>
           )}
           {error && (
-            <div className="text-red-500 dark:text-red-400">
+            <div className="text-red-500 dark:text-red-400 text-lg">
               {error}
             </div>
           )}
           <button
             onClick={downloadCharts}
             disabled={isGenerating}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md ${
+            className={`flex items-center gap-2 px-6 py-3 rounded-lg text-lg ${
               isGenerating
                 ? 'bg-gray-400 cursor-not-allowed'
                 : 'bg-blue-500 hover:bg-blue-600'
             } text-white`}
           >
-            <Download className="h-4 w-4" />
+            <Download className="h-5 w-5" />
             {isGenerating ? 'Generating...' : 'Download Charts'}
           </button>
         </div>
       </div>
+
+      {/* Preview Charts */}
+      <div className="mt-8 space-y-12 max-h-[75vh] overflow-y-auto p-6">
+        {prepareChartData(analysisResults).map((chartItem, index) => (
+          <div 
+            key={`${chartItem.keyword}-${index}`}
+            className="bg-white dark:bg-gray-800 rounded-xl p-8 shadow-lg"
+          >
+            <h4 className="text-2xl font-bold text-center mb-8 text-gray-900 dark:text-white">
+              Frequency Distribution: "{chartItem.keyword}"
+            </h4>
+            
+            {/* Chart with optimized dimensions for many data points */}
+            <div className="w-full overflow-x-auto">
+              <div className="min-w-[1500px]"> {/* Increased minimum width */}
+                <BarChart
+                  width={1500}  // Increased width
+                  height={700}  // Increased height
+                  data={chartItem.data}
+                  margin={{
+                    top: 30,
+                    right: 40,
+                    left: 120,
+                    bottom: 200  // Increased bottom margin for labels
+                  }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="documentName"
+                    interval={0}  // Show all labels
+                    angle={-60}  // More vertical angle for better stacking
+                    textAnchor="end"
+                    height={180}  // Increased height for labels
+                    tick={{
+                      fontSize: 10,  // Smaller font
+                      dy: 0,
+                      dx: 0
+                    }}
+                    tickFormatter={(value) => {
+                      // Show more of the filename but remove common extensions
+                      const withoutExtension = value.replace(/\.(pdf|doc|docx|txt)$/i, '');
+                      return withoutExtension.length > 20 ? 
+                        withoutExtension.substring(0, 17) + '...' : 
+                        withoutExtension;
+                    }}
+                  />
+                  <YAxis
+                    label={{ 
+                      value: 'Number of Matches',
+                      angle: -90,
+                      position: 'insideLeft',
+                      style: { 
+                        textAnchor: 'middle',
+                        fontSize: 14,
+                        fontWeight: 500
+                      }
+                    }}
+                    tick={{ 
+                      fontSize: 12,
+                      fontWeight: 500
+                    }}
+                  />
+                  <Tooltip 
+                    formatter={(value, name, props) => [value, 'Matches']}
+                    labelFormatter={(label) => `Document: ${label}`}
+                    contentStyle={{
+                      fontSize: '12px',
+                      padding: '8px'
+                    }}
+                    wrapperStyle={{
+                      zIndex: 1000
+                    }}
+                  />
+                  <Bar
+                    dataKey="count"
+                    fill="#2563eb"
+                    name="Matches"
+                    // Make bars thinner to prevent overlap
+                    barSize={15}
+                  />
+                </BarChart>
+              </div>
+            </div>
+
+            {/* Settings Summary - Same as before */}
+            <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
+              <h5 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
+                Search Configuration
+              </h5>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h6 className="text-lg font-medium text-blue-600 dark:text-blue-400 mb-3">
+                    Basic Matching Settings
+                  </h6>
+                  <div className="space-y-3 text-base text-gray-700 dark:text-gray-300">
+                    <div>
+                      <span className="font-medium">Case Sensitivity: </span>
+                      {chartItem.settings.caseSensitive ? 'Enabled' : 'Disabled'}
+                    </div>
+                    <div>
+                      <span className="font-medium">Exact Text Match: </span>
+                      {chartItem.settings.useExactText ? 'Enabled' : 'Disabled'}
+                    </div>
+                    {chartItem.settings.useFuzzyMatch && (
+                      <div>
+                        <span className="font-medium">Similarity Threshold: </span>
+                        {(chartItem.settings.fuzzyMatchThreshold * 100).toFixed(0)}%
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <h6 className="text-lg font-medium text-blue-600 dark:text-blue-400 mb-3">
+                    Context Requirements
+                  </h6>
+                  <div className="space-y-3 text-base text-gray-700 dark:text-gray-300">
+                    {chartItem.settings.contextBefore && (
+                      <div>
+                        <span className="font-medium">Required Words Before: </span>
+                        {chartItem.settings.contextBefore}
+                      </div>
+                    )}
+                    {chartItem.settings.contextAfter && (
+                      <div>
+                        <span className="font-medium">Required Words After: </span>
+                        {chartItem.settings.contextAfter}
+                      </div>
+                    )}
+                    <div>
+                      <span className="font-medium">Search Range: </span>
+                      {chartItem.settings.contextRange} words
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
-};
-
+}
 export default ChartExporter;

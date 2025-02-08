@@ -1,14 +1,66 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
-import { Download, ChevronDown, ChevronRight, GitBranch } from 'lucide-react';
+import { Download, ChevronDown, ChevronRight, GitBranch, Loader2, BarChart2 as ChartIcon } from 'lucide-react';
 import WordTree from './WordTree';
-import ChartExporter from './ChartExporter';
+import Logger from '../utils/logger';
+import ChartExporter from '../components/ChartExporter';
 
-const AnalysisResults = ({ results, documents }) => {
+const CHUNK_SIZE = 50;
+const DELAY_BETWEEN_CHUNKS = 100;
+
+// Helper to create a unique identifier for keyword configurations
+const createKeywordConfigId = (keyword, settings) => {
+  const settingsStr = JSON.stringify({
+    caseSensitive: settings.caseSensitive,
+    useExactText: settings.useExactText,
+    useFuzzyMatch: settings.useFuzzyMatch,
+    fuzzyMatchThreshold: settings.fuzzyMatchThreshold,
+    contextBefore: settings.contextBefore,
+    contextAfter: settings.contextAfter,
+    contextRange: settings.contextRange
+  });
+  return `${keyword}_${settingsStr}`;
+};
+
+const ExportLoader = ({ message, error = null }) => (
+  <div className="fixed inset-0 flex items-center justify-center bg-black/30 z-[9999]">
+    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-xl flex items-center gap-3">
+      {error ? (
+        <div className="text-red-500">{error}</div>
+      ) : (
+        <>
+          <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+          <span className="text-gray-700 dark:text-gray-300">{message}</span>
+        </>
+      )}
+    </div>
+  </div>
+);
+
+function AnalysisResults({ results, documents }) {
   const [expandedDocs, setExpandedDocs] = useState(new Set());
   const [expandedKeywords, setExpandedKeywords] = useState(new Set());
   const [showWordTree, setShowWordTree] = useState(false);
   const [selectedKeyword, setSelectedKeyword] = useState(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
+  const [exportError, setExportError] = useState(null);
+  const [showChartExporter, setShowChartExporter] = useState(false);
+
+  // Create a map of unique keyword configurations
+  const uniqueKeywordConfigs = new Map();
+  results.forEach(doc => {
+    Object.entries(doc.keywords).forEach(([_, data]) => {
+      const configId = createKeywordConfigId(data.word, data.originalSettings);
+      if (!uniqueKeywordConfigs.has(configId)) {
+        uniqueKeywordConfigs.set(configId, {
+          word: data.word,
+          settings: data.originalSettings,
+          category: data.category
+        });
+      }
+    });
+  });
 
   const toggleDoc = (docId) => {
     const newExpanded = new Set(expandedDocs);
@@ -20,8 +72,8 @@ const AnalysisResults = ({ results, documents }) => {
     setExpandedDocs(newExpanded);
   };
 
-  const toggleKeyword = (docId, keyword) => {
-    const key = `${docId}-${keyword}`;
+  const toggleKeyword = (docId, keywordId) => {
+    const key = `${docId}-${keywordId}`;
     const newExpanded = new Set(expandedKeywords);
     if (newExpanded.has(key)) {
       newExpanded.delete(key);
@@ -31,79 +83,117 @@ const AnalysisResults = ({ results, documents }) => {
     setExpandedKeywords(newExpanded);
   };
 
-  const exportToExcel = () => {
-    // Create summary sheet
-    const summaryData = results.map(doc => {
-      const row = {
-        'Document Name': doc.documentName,
-      };
-      // Add counts for each keyword
-      Object.entries(doc.keywords).forEach(([keyword, data]) => {
-        row[`${keyword} Count`] = data.count;
-      });
-      return row;
-    });
+  const processDataForExcel = async (results, uniqueKeywordConfigs, onProgress) => {
+    // Process summary data
+    const summarySheetData = [];
+    const detailedSheetData = [];
+    const totalDocs = results.length;
+    
+    // Process one document at a time
+    for (let docIndex = 0; docIndex < results.length; docIndex++) {
+      const doc = results[docIndex];
+      const summaryRow = { 'Document Name': doc.documentName };
+      
+      // Add columns for each unique keyword configuration
+      uniqueKeywordConfigs.forEach((config, configId) => {
+        const keywordData = Object.values(doc.keywords).find(data => 
+          createKeywordConfigId(data.word, data.originalSettings) === configId
+        );
+        
+        const settingsStr = [
+          config.settings.caseSensitive ? 'Case Sensitive' : 'Case Insensitive',
+          config.settings.useExactText ? 'Exact Match' : 
+          config.settings.useFuzzyMatch ? `Fuzzy (${config.settings.fuzzyMatchThreshold})` : 
+          'Normal Match'
+        ].join(', ');
 
-    // Create detailed matches sheet
-    const detailedData = [];
-    results.forEach(doc => {
-      Object.entries(doc.keywords).forEach(([keyword, data]) => {
-        data.matches.forEach(match => {
-          detailedData.push({
-            'Document Name': doc.documentName,
-            'Keyword': keyword,
-            'Category': data.category,
-            'Context': match.context,
-            'Words Before': match.wordsBefore,
-            'Matched Text': match.term,
-            'Words After': match.wordsAfter,
-            'Similarity': match.similarity?.toFixed(3) || 'N/A'
+        summaryRow[`${config.word} (${settingsStr})`] = keywordData?.count || 0;
+      });
+      
+      summarySheetData.push(summaryRow);
+
+      // Process matches for detailed sheet
+      for (const [keywordId, data] of Object.entries(doc.keywords)) {
+        if (!data.matches) continue;
+        
+        // Process matches in smaller chunks
+        const chunkSize = 100;
+        for (let i = 0; i < data.matches.length; i += chunkSize) {
+          const matchChunk = data.matches.slice(i, i + chunkSize);
+          
+          matchChunk.forEach(match => {
+            detailedSheetData.push({
+              'Document Name': doc.documentName,
+              'Keyword': data.word,
+              'Settings': [
+                data.originalSettings.caseSensitive ? 'Case Sensitive' : 'Case Insensitive',
+                data.originalSettings.useExactText ? 'Exact Match' : 
+                data.originalSettings.useFuzzyMatch ? `Fuzzy (${data.originalSettings.fuzzyMatchThreshold})` : 
+                'Normal Match'
+              ].join(', '),
+              'Category': data.category || '',
+              'Context': match.context || '',
+              'Words Before': match.wordsBefore || '',
+              'Matched Text': match.term || '',
+              'Words After': match.wordsAfter || '',
+              'Similarity': match.similarity?.toFixed(3) || 'N/A'
+            });
           });
-        });
-      });
-    });
 
-    // Create context analysis sheet
-    const contextData = [];
-    results.forEach(doc => {
-      Object.entries(doc.keywords).forEach(([keyword, data]) => {
-        data.matches.forEach(match => {
-          contextData.push({
-            'Document Name': doc.documentName,
-            'Keyword': keyword,
-            'Full Context': `${match.wordsBefore} [${match.term}] ${match.wordsAfter}`,
-            'Position': match.position
-          });
-        });
-      });
-    });
-
-    // Create workbook with multiple sheets
-    const wb = XLSX.utils.book_new();
-    const summaryWS = XLSX.utils.json_to_sheet(summaryData);
-    const detailedWS = XLSX.utils.json_to_sheet(detailedData);
-    const contextWS = XLSX.utils.json_to_sheet(contextData);
-
-    // Add column widths for better readability
-    const setCellWidths = (worksheet) => {
-      const columnWidths = [];
-      for (let i = 0; i < Object.keys(worksheet).length; i++) {
-        columnWidths.push({ wch: 20 }); // Default width
+          // Allow UI to update
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
       }
-      worksheet['!cols'] = columnWidths;
-    };
+      
+      // Update progress
+      onProgress((docIndex + 1) / totalDocs * 100);
+    }
 
-    setCellWidths(summaryWS);
-    setCellWidths(detailedWS);
-    setCellWidths(contextWS);
-
-    XLSX.utils.book_append_sheet(wb, summaryWS, "Summary");
-    XLSX.utils.book_append_sheet(wb, detailedWS, "Detailed Matches");
-    XLSX.utils.book_append_sheet(wb, contextWS, "Context Analysis");
-
-    // Save the file
-    XLSX.writeFile(wb, "keyword-analysis.xlsx");
+    return { summarySheetData, detailedSheetData };
   };
+
+  const exportToExcel = useCallback(async () => {
+    try {
+      Logger.info('AnalysisResults', 'Starting Excel export');
+      setIsExporting(true);
+      setExportError(null);
+      setExportProgress(0);
+
+      const { summarySheetData, detailedSheetData } = await processDataForExcel(
+        results,
+        uniqueKeywordConfigs,
+        setExportProgress
+      );
+
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      
+      // Convert data to worksheets with smaller chunks to prevent crashes
+      const summaryWS = XLSX.utils.json_to_sheet(summarySheetData);
+      const detailedWS = XLSX.utils.json_to_sheet(detailedSheetData);
+
+      // Set column widths
+      const columnWidths = new Array(20).fill({ wch: 20 });
+      summaryWS['!cols'] = columnWidths;
+      detailedWS['!cols'] = columnWidths;
+
+      // Add worksheets to workbook
+      XLSX.utils.book_append_sheet(wb, summaryWS, "Summary");
+      XLSX.utils.book_append_sheet(wb, detailedWS, "Detailed Matches");
+
+      // Write file
+      XLSX.writeFile(wb, "keyword-analysis.xlsx");
+      Logger.info('AnalysisResults', 'Export completed successfully');
+
+    } catch (error) {
+      Logger.error('AnalysisResults', 'Export failed', error);
+      setExportError(error.message);
+      setTimeout(() => setExportError(null), 5000);
+    } finally {
+      setIsExporting(false);
+      setExportProgress(0);
+    }
+  }, [results, uniqueKeywordConfigs]);
 
   return (
     <div className="mt-8 bg-white dark:bg-gray-800 rounded-lg shadow p-4">
@@ -111,13 +201,24 @@ const AnalysisResults = ({ results, documents }) => {
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
           Analysis Results
         </h2>
-        <button
-          onClick={exportToExcel}
-          className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md"
-        >
-          <Download className="h-4 w-4" />
-          Export to Excel
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowChartExporter(true)}
+            disabled={isExporting}
+            className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <ChartIcon className="h-4 w-4" />
+            Export Charts
+          </button>
+          <button
+            onClick={exportToExcel}
+            disabled={isExporting}
+            className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Download className="h-4 w-4" />
+            Export to Excel
+          </button>
+        </div>
       </div>
 
       <div className="space-y-4">
@@ -141,7 +242,7 @@ const AnalysisResults = ({ results, documents }) => {
                 </h3>
               </div>
               <div className="text-sm text-gray-500 dark:text-gray-400">
-                {Object.keys(doc.keywords).length} keywords analyzed
+                {Object.keys(doc.keywords).length} keyword configurations analyzed
               </div>
             </div>
 
@@ -151,6 +252,7 @@ const AnalysisResults = ({ results, documents }) => {
                   <thead>
                     <tr className="text-left">
                       <th className="pb-2">Keyword</th>
+                      <th className="pb-2">Settings</th>
                       <th className="pb-2">Category</th>
                       <th className="pb-2">Count</th>
                       <th className="pb-2">Actions</th>
@@ -158,25 +260,36 @@ const AnalysisResults = ({ results, documents }) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {Object.entries(doc.keywords).map(([keyword, data]) => (
-                      <React.Fragment key={keyword}>
+                    {Object.entries(doc.keywords).map(([keywordId, data]) => (
+                      <React.Fragment key={keywordId}>
                         <tr className="border-t border-gray-100 dark:border-gray-700">
-                          <td className="py-2">{keyword}</td>
+                          <td className="py-2">{data.word}</td>
+                          <td className="py-2 text-sm">
+                            {[
+                              data.originalSettings.caseSensitive ? 'Case Sensitive' : 'Case Insensitive',
+                              data.originalSettings.useExactText ? 'Exact Match' : 
+                              data.originalSettings.useFuzzyMatch ? `Fuzzy (${data.originalSettings.fuzzyMatchThreshold})` : 
+                              'Normal Match'
+                            ].join(', ')}
+                          </td>
                           <td className="py-2">{data.category}</td>
                           <td className="py-2">{data.count}</td>
                           <td className="py-2">
                             <button
-                              onClick={() => toggleKeyword(doc.documentId, keyword)}
+                              onClick={() => toggleKeyword(doc.documentId, keywordId)}
                               className="text-blue-500 hover:text-blue-600 text-sm"
                             >
-                              {expandedKeywords.has(`${doc.documentId}-${keyword}`) ? 
+                              {expandedKeywords.has(`${doc.documentId}-${keywordId}`) ? 
                                 'Hide Matches' : 'Show Matches'}
                             </button>
                           </td>
                           <td className="py-2">
                             <button
                               onClick={() => {
-                                setSelectedKeyword(keyword);
+                                setSelectedKeyword({
+                                  word: data.word,
+                                  settings: data.originalSettings
+                                });
                                 setShowWordTree(true);
                               }}
                               className="flex items-center gap-1 text-green-500 hover:text-green-600 text-sm"
@@ -186,9 +299,9 @@ const AnalysisResults = ({ results, documents }) => {
                             </button>
                           </td>
                         </tr>
-                        {expandedKeywords.has(`${doc.documentId}-${keyword}`) && (
+                        {expandedKeywords.has(`${doc.documentId}-${keywordId}`) && (
                           <tr>
-                            <td colSpan="5" className="py-2">
+                            <td colSpan="6" className="py-2">
                               <div className="pl-4 space-y-2">
                                 {data.matches.map((match, idx) => (
                                   <div 
@@ -232,21 +345,53 @@ const AnalysisResults = ({ results, documents }) => {
         ))}
       </div>
 
-      {/* Chart Exporter Component */}
-      <ChartExporter analysisResults={results} />
-
       {showWordTree && selectedKeyword && (
         <WordTree
-          analysisResults={results}  // Pass the full results instead of documents
-          keyword={selectedKeyword}
+          documents={documents}
+          keyword={selectedKeyword.word}
+          settings={selectedKeyword.settings}
           onClose={() => {
             setShowWordTree(false);
             setSelectedKeyword(null);
           }}
         />
       )}
+
+      {/* Add the ChartExporter component */}
+      {showChartExporter && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="relative w-[90vw] h-[90vh] bg-white dark:bg-gray-800 rounded-lg p-6 overflow-auto">
+            <button
+              onClick={() => setShowChartExporter(false)}
+              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            >
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+            <ChartExporter analysisResults={results} />
+          </div>
+        </div>
+      )}
+
+      {isExporting && (
+        <ExportLoader 
+          message={exportError ? undefined : `Generating Excel file (${Math.round(exportProgress)}%)`}
+          error={exportError}
+        />
+      )}
     </div>
   );
-};
+}
 
 export default AnalysisResults;

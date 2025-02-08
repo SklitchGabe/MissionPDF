@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { parsePDF } from '../utils/pdfParser';
 
 const BATCH_SIZE = 5; // Process 5 PDFs at a time
@@ -7,12 +7,13 @@ export function useDocuments() {
   const [documents, setDocuments] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState({ 
-    processed: 0,        // Current batch progress
-    total: 0,           // Current batch total
-    totalProcessed: 0,  // Cumulative total processed across all batches
-    totalUploaded: 0    // Cumulative total uploaded across all batches
+    processed: 0,
+    total: 0,
+    totalProcessed: 0,
+    totalUploaded: 0
   });
   const [error, setError] = useState(null);
+  const [failedUploads, setFailedUploads] = useState([]);
 
   const processBatch = async (files, startIndex) => {
     const batchEnd = Math.min(startIndex + BATCH_SIZE, files.length);
@@ -32,6 +33,7 @@ export function useDocuments() {
           };
         } catch (err) {
           console.error(`Error processing ${file.name}:`, err);
+          setFailedUploads(prev => [...prev, file]);
           return null;
         }
       })
@@ -43,7 +45,7 @@ export function useDocuments() {
     // Update state with new documents
     setDocuments(prev => [...prev, ...validDocs]);
     
-    // Update progress for both current batch and total
+    // Update progress
     setProgress(prev => ({
       ...prev,
       processed: prev.processed + currentBatch.length,
@@ -62,8 +64,8 @@ export function useDocuments() {
     setProgress(prev => ({ 
       processed: 0,
       total: files.length,
-      totalProcessed: prev.totalProcessed, // Maintain cumulative processed count
-      totalUploaded: prev.totalUploaded + files.length // Add new files to total uploaded
+      totalProcessed: prev.totalProcessed,
+      totalUploaded: prev.totalUploaded + files.length
     }));
 
     try {
@@ -72,19 +74,12 @@ export function useDocuments() {
       setError(err.message);
     } finally {
       setIsProcessing(false);
-      // Reset current batch progress but maintain totals
-      setProgress(prev => ({
-        ...prev,
-        processed: 0,
-        total: 0
-      }));
     }
   }, []);
 
   const removeDocument = useCallback((documentId) => {
     setDocuments(prev => {
       const newDocs = prev.filter(doc => doc.id !== documentId);
-      // Update total counts when a document is removed
       setProgress(prev => ({
         ...prev,
         totalProcessed: Math.max(0, prev.totalProcessed - 1),
@@ -94,12 +89,30 @@ export function useDocuments() {
     });
   }, []);
 
+  const reprocessFailedUploads = useCallback(async () => {
+    if (failedUploads.length === 0) return;
+    
+    setIsProcessing(true);
+    setError(null);
+    
+    try {
+      await processBatch(failedUploads, 0);
+      setFailedUploads([]); // Clear the failed uploads after successful reprocessing
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [failedUploads]);
+
   return {
     documents,
     isProcessing,
     progress,
     error,
+    failedUploads,
     processDocuments,
-    removeDocument
+    removeDocument,
+    reprocessFailedUploads
   };
 }
