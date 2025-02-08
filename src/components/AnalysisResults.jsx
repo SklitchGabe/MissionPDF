@@ -1,14 +1,24 @@
 import React, { useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
-import { Download, ChevronDown, ChevronRight, GitBranch, Loader2, BarChart2 as ChartIcon } from 'lucide-react';
+import { 
+  Download, 
+  ChevronDown, 
+  ChevronRight, 
+  GitBranch, 
+  Loader2, 
+  BarChart2,
+  X,
+  FileText 
+} from 'lucide-react';
 import WordTree from './WordTree';
+import TextViewer from './TextViewer';
 import Logger from '../utils/logger';
-import ChartExporter from '../components/ChartExporter';
+import ChartExporter from './ChartExporter';
 
 const CHUNK_SIZE = 50;
 const DELAY_BETWEEN_CHUNKS = 100;
 
-// Helper to create a unique identifier for keyword configurations
+// Helper function for consistent keyword ID creation
 const createKeywordConfigId = (keyword, settings) => {
   const settingsStr = JSON.stringify({
     caseSensitive: settings.caseSensitive,
@@ -22,6 +32,7 @@ const createKeywordConfigId = (keyword, settings) => {
   return `${keyword}_${settingsStr}`;
 };
 
+// Loader component
 const ExportLoader = ({ message, error = null }) => (
   <div className="fixed inset-0 flex items-center justify-center bg-black/30 z-[9999]">
     <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-xl flex items-center gap-3">
@@ -37,86 +48,72 @@ const ExportLoader = ({ message, error = null }) => (
   </div>
 );
 
+// Main component
 function AnalysisResults({ results, documents }) {
   const [expandedDocs, setExpandedDocs] = useState(new Set());
   const [expandedKeywords, setExpandedKeywords] = useState(new Set());
   const [showWordTree, setShowWordTree] = useState(false);
   const [selectedKeyword, setSelectedKeyword] = useState(null);
+  const [selectedDoc, setSelectedDoc] = useState('all');
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportError, setExportError] = useState(null);
   const [showChartExporter, setShowChartExporter] = useState(false);
+  const [showRawText, setShowRawText] = useState(false);
+  const [selectedTextDoc, setSelectedTextDoc] = useState(null);
 
-  // Create a map of unique keyword configurations
-  const uniqueKeywordConfigs = new Map();
-  results.forEach(doc => {
-    Object.entries(doc.keywords).forEach(([_, data]) => {
-      const configId = createKeywordConfigId(data.word, data.originalSettings);
-      if (!uniqueKeywordConfigs.has(configId)) {
-        uniqueKeywordConfigs.set(configId, {
-          word: data.word,
-          settings: data.originalSettings,
-          category: data.category
-        });
+  const toggleDoc = useCallback((docId) => {
+    setExpandedDocs(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(docId)) {
+        newSet.delete(docId);
+      } else {
+        newSet.add(docId);
       }
+      return newSet;
     });
-  });
+  }, []);
 
-  const toggleDoc = (docId) => {
-    const newExpanded = new Set(expandedDocs);
-    if (newExpanded.has(docId)) {
-      newExpanded.delete(docId);
-    } else {
-      newExpanded.add(docId);
-    }
-    setExpandedDocs(newExpanded);
-  };
+  const toggleKeyword = useCallback((docId, keywordId) => {
+    setExpandedKeywords(prev => {
+      const key = `${docId}-${keywordId}`;
+      const newSet = new Set(prev);
+      if (newSet.has(key)) {
+        newSet.delete(key);
+      } else {
+        newSet.add(key);
+      }
+      return newSet;
+    });
+  }, []);
 
-  const toggleKeyword = (docId, keywordId) => {
-    const key = `${docId}-${keywordId}`;
-    const newExpanded = new Set(expandedKeywords);
-    if (newExpanded.has(key)) {
-      newExpanded.delete(key);
-    } else {
-      newExpanded.add(key);
-    }
-    setExpandedKeywords(newExpanded);
-  };
-
-  const processDataForExcel = async (results, uniqueKeywordConfigs, onProgress) => {
-    // Process summary data
+  const processDataForExcel = async (results, onProgress) => {
     const summarySheetData = [];
     const detailedSheetData = [];
     const totalDocs = results.length;
     
-    // Process one document at a time
     for (let docIndex = 0; docIndex < results.length; docIndex++) {
       const doc = results[docIndex];
       const summaryRow = { 'Document Name': doc.documentName };
       
-      // Add columns for each unique keyword configuration
-      uniqueKeywordConfigs.forEach((config, configId) => {
-        const keywordData = Object.values(doc.keywords).find(data => 
-          createKeywordConfigId(data.word, data.originalSettings) === configId
-        );
-        
+      // Process keywords for summary
+      Object.entries(doc.keywords).forEach(([_, data]) => {
         const settingsStr = [
-          config.settings.caseSensitive ? 'Case Sensitive' : 'Case Insensitive',
-          config.settings.useExactText ? 'Exact Match' : 
-          config.settings.useFuzzyMatch ? `Fuzzy (${config.settings.fuzzyMatchThreshold})` : 
+          data.originalSettings.caseSensitive ? 'Case Sensitive' : 'Case Insensitive',
+          data.originalSettings.useExactText ? 'Exact Match' : 
+          data.originalSettings.useFuzzyMatch ? `Fuzzy (${data.originalSettings.fuzzyMatchThreshold})` : 
           'Normal Match'
         ].join(', ');
 
-        summaryRow[`${config.word} (${settingsStr})`] = keywordData?.count || 0;
+        summaryRow[`${data.word} (${settingsStr})`] = data.count || 0;
       });
       
       summarySheetData.push(summaryRow);
 
       // Process matches for detailed sheet
-      for (const [keywordId, data] of Object.entries(doc.keywords)) {
+      for (const [_, data] of Object.entries(doc.keywords)) {
         if (!data.matches) continue;
         
-        // Process matches in smaller chunks
         const chunkSize = 100;
         for (let i = 0; i < data.matches.length; i += chunkSize) {
           const matchChunk = data.matches.slice(i, i + chunkSize);
@@ -140,12 +137,10 @@ function AnalysisResults({ results, documents }) {
             });
           });
 
-          // Allow UI to update
-          await new Promise(resolve => setTimeout(resolve, 0));
+          await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_CHUNKS));
         }
       }
       
-      // Update progress
       onProgress((docIndex + 1) / totalDocs * 100);
     }
 
@@ -161,27 +156,20 @@ function AnalysisResults({ results, documents }) {
 
       const { summarySheetData, detailedSheetData } = await processDataForExcel(
         results,
-        uniqueKeywordConfigs,
         setExportProgress
       );
 
-      // Create workbook
       const wb = XLSX.utils.book_new();
-      
-      // Convert data to worksheets with smaller chunks to prevent crashes
       const summaryWS = XLSX.utils.json_to_sheet(summarySheetData);
       const detailedWS = XLSX.utils.json_to_sheet(detailedSheetData);
 
-      // Set column widths
       const columnWidths = new Array(20).fill({ wch: 20 });
       summaryWS['!cols'] = columnWidths;
       detailedWS['!cols'] = columnWidths;
 
-      // Add worksheets to workbook
       XLSX.utils.book_append_sheet(wb, summaryWS, "Summary");
       XLSX.utils.book_append_sheet(wb, detailedWS, "Detailed Matches");
 
-      // Write file
       XLSX.writeFile(wb, "keyword-analysis.xlsx");
       Logger.info('AnalysisResults', 'Export completed successfully');
 
@@ -193,8 +181,16 @@ function AnalysisResults({ results, documents }) {
       setIsExporting(false);
       setExportProgress(0);
     }
-  }, [results, uniqueKeywordConfigs]);
+  }, [results]);
 
+  const handleShowRawText = (docId) => {
+    const document = documents.find(doc => doc.id === docId);
+    if (document) {
+      setSelectedTextDoc(document);
+      setShowRawText(true);
+    }
+  };
+  
   return (
     <div className="mt-8 bg-white dark:bg-gray-800 rounded-lg shadow p-4">
       <div className="flex justify-between items-center mb-4">
@@ -202,12 +198,28 @@ function AnalysisResults({ results, documents }) {
           Analysis Results
         </h2>
         <div className="flex items-center gap-2">
+          {isExporting && (
+            <div className="flex items-center gap-2 text-blue-500 dark:text-blue-400">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>
+                Generating files ({Math.round(exportProgress)}%)...
+              </span>
+            </div>
+          )}
+          <button
+            onClick={() => setShowWordTree(true)}
+            disabled={isExporting}
+            className="flex items-center gap-2 bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <GitBranch className="h-4 w-4" />
+            View Word Trees
+          </button>
           <button
             onClick={() => setShowChartExporter(true)}
             disabled={isExporting}
             className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <ChartIcon className="h-4 w-4" />
+            <BarChart2 className="h-4 w-4" />
             Export Charts
           </button>
           <button
@@ -256,7 +268,6 @@ function AnalysisResults({ results, documents }) {
                       <th className="pb-2">Category</th>
                       <th className="pb-2">Count</th>
                       <th className="pb-2">Actions</th>
-                      <th className="pb-2">Visualization</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -275,33 +286,27 @@ function AnalysisResults({ results, documents }) {
                           <td className="py-2">{data.category}</td>
                           <td className="py-2">{data.count}</td>
                           <td className="py-2">
-                            <button
-                              onClick={() => toggleKeyword(doc.documentId, keywordId)}
-                              className="text-blue-500 hover:text-blue-600 text-sm"
-                            >
-                              {expandedKeywords.has(`${doc.documentId}-${keywordId}`) ? 
-                                'Hide Matches' : 'Show Matches'}
-                            </button>
-                          </td>
-                          <td className="py-2">
-                            <button
-                              onClick={() => {
-                                setSelectedKeyword({
-                                  word: data.word,
-                                  settings: data.originalSettings
-                                });
-                                setShowWordTree(true);
-                              }}
-                              className="flex items-center gap-1 text-green-500 hover:text-green-600 text-sm"
-                            >
-                              <GitBranch className="h-4 w-4" />
-                              Word Tree
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => toggleKeyword(doc.documentId, keywordId)}
+                                className="text-blue-500 hover:text-blue-600 text-sm"
+                              >
+                                {expandedKeywords.has(`${doc.documentId}-${keywordId}`) ? 
+                                  'Hide Matches' : 'Show Matches'}
+                              </button>
+                              <button
+                                onClick={() => handleShowRawText(doc.documentId)}
+                                className="text-green-500 hover:text-green-600 text-sm flex items-center gap-1"
+                              >
+                                <FileText className="h-4 w-4" />
+                                Show Raw Text
+                              </button>
+                            </div>
                           </td>
                         </tr>
                         {expandedKeywords.has(`${doc.documentId}-${keywordId}`) && (
                           <tr>
-                            <td colSpan="6" className="py-2">
+                            <td colSpan="5" className="py-2">
                               <div className="pl-4 space-y-2">
                                 {data.matches.map((match, idx) => (
                                   <div 
@@ -345,19 +350,6 @@ function AnalysisResults({ results, documents }) {
         ))}
       </div>
 
-      {showWordTree && selectedKeyword && (
-        <WordTree
-          documents={documents}
-          keyword={selectedKeyword.word}
-          settings={selectedKeyword.settings}
-          onClose={() => {
-            setShowWordTree(false);
-            setSelectedKeyword(null);
-          }}
-        />
-      )}
-
-      {/* Add the ChartExporter component */}
       {showChartExporter && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="relative w-[90vw] h-[90vh] bg-white dark:bg-gray-800 rounded-lg p-6 overflow-auto">
@@ -365,23 +357,96 @@ function AnalysisResults({ results, documents }) {
               onClick={() => setShowChartExporter(false)}
               className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             >
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
+              <X className="h-6 w-6" />
             </button>
             <ChartExporter analysisResults={results} />
           </div>
         </div>
+      )}
+
+      {showWordTree && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="relative w-[90vw] h-[90vh] bg-white dark:bg-gray-800 rounded-lg p-6">
+          <div className="absolute top-4 right-4 flex items-center gap-4">
+            <select
+              onChange={(e) => {
+                const selectedKeywordId = e.target.value;
+                if (selectedKeywordId) {
+                  const keywordData = results.find(doc => doc.keywords[selectedKeywordId])?.keywords[selectedKeywordId];
+                  if (keywordData) {
+                    setSelectedKeyword({
+                      word: keywordData.word,
+                      matches: results.flatMap(doc => 
+                        doc.keywords[selectedKeywordId]?.matches || []
+                      )
+                    });
+                  }
+                } else {
+                  setSelectedKeyword(null);
+                }
+              }}
+              className="px-4 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              defaultValue=""
+            >
+              <option value="">Select a keyword...</option>
+              {Object.entries(results[0]?.keywords || {}).map(([keywordId, data]) => (
+                <option key={keywordId} value={keywordId}>
+                  {data.word} ({results.reduce((total, doc) => 
+                    total + (doc.keywords[keywordId]?.matches?.length || 0), 0
+                  )} total matches)
+                </option>
+              ))}
+            </select>
+            <select
+              onChange={(e) => setSelectedDoc(e.target.value)}
+              className="px-4 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              defaultValue="all"
+            >
+              <option value="all">All Documents</option>
+              {results.map(doc => (
+                <option key={doc.documentId} value={doc.documentId}>
+                  {doc.documentName}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => {
+                setShowWordTree(false);
+                setSelectedKeyword(null);
+              }}
+              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
+          
+          {selectedKeyword ? (
+            <WordTree
+              analysisResults={selectedDoc === 'all' ? results : 
+                results.filter(doc => doc.documentId === selectedDoc)}
+              keyword={selectedKeyword.word}
+              onClose={() => {
+                setShowWordTree(false);
+                setSelectedKeyword(null);
+              }}
+            />
+          ) : (
+            <div className="h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
+              Please select a keyword to view its word tree
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+
+    {showRawText && selectedTextDoc && (
+        <TextViewer
+          document={selectedTextDoc}
+          onClose={() => {
+            setShowRawText(false);
+            setSelectedTextDoc(null);
+          }}
+        />
       )}
 
       {isExporting && (

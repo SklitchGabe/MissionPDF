@@ -6,9 +6,10 @@ const WordTree = ({ analysisResults, keyword, onClose }) => {
   const [zoom, setZoom] = useState(1);
   const [treeData, setTreeData] = useState(null);
   const [wordRange, setWordRange] = useState(5);
-  const [showCount, setShowCount] = useState(50);
+  const [showCount, setShowCount] = useState(100);
   const [hoveredLine, setHoveredLine] = useState(null);
   const containerRef = useRef(null);
+  const [viewportHeight, setViewportHeight] = useState(0);
 
   useEffect(() => {
     const handleEscape = (e) => {
@@ -17,6 +18,12 @@ const WordTree = ({ analysisResults, keyword, onClose }) => {
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, [onClose]);
+
+  useEffect(() => {
+    if (containerRef.current) {
+      setViewportHeight(containerRef.current.clientHeight);
+    }
+  }, []);
 
   useEffect(() => {
     if (!keyword || !analysisResults?.length) return;
@@ -28,34 +35,31 @@ const WordTree = ({ analysisResults, keyword, onClose }) => {
       };
 
       analysisResults.forEach(doc => {
-        // Initialize document flows
-        flows.documentFlows[doc.id] = {
+        flows.documentFlows[doc.documentId] = {
           instances: [],
           documentName: doc.documentName
         };
 
-        // Get matches for this keyword from analysis results
-        const keywordData = doc.keywords[keyword];
-        if (!keywordData || !keywordData.matches) return;
+        Object.values(doc.keywords).forEach(keywordData => {
+          if (keywordData.word === keyword && keywordData.matches) {
+            keywordData.matches.forEach(match => {
+              const beforeWords = match.wordsBefore?.split(/\s+/).filter(w => w && w.length > 0) || [];
+              const afterWords = match.wordsAfter?.split(/\s+/).filter(w => w && w.length > 0) || [];
 
-        // Process each validated match
-        keywordData.matches.forEach(match => {
-          // Split the surrounding context into words
-          const beforeWords = match.wordsBefore.split(/\s+/).filter(w => w.length > 0);
-          const afterWords = match.wordsAfter.split(/\s+/).filter(w => w.length > 0);
+              const instance = {
+                before: beforeWords.slice(-wordRange).join(' '),
+                after: afterWords.slice(0, wordRange).join(' '),
+                term: match.term || keyword,
+                position: match.position,
+                documentId: doc.documentId,
+                documentName: doc.documentName,
+                fullContext: `${beforeWords.slice(-wordRange).join(' ')} ${match.term || keyword} ${afterWords.slice(0, wordRange).join(' ')}`
+              };
 
-          // Create instance with the actual matched term and its context
-          const instance = {
-            before: beforeWords.slice(-wordRange).join(' '),
-            after: afterWords.slice(0, wordRange).join(' '),
-            term: match.term,
-            position: match.position,
-            documentId: doc.documentId,
-            documentName: doc.documentName
-          };
-
-          flows.instances.push(instance);
-          flows.documentFlows[doc.id].instances.push(instance);
+              flows.instances.push(instance);
+              flows.documentFlows[doc.documentId].instances.push(instance);
+            });
+          }
         });
       });
 
@@ -90,31 +94,91 @@ const WordTree = ({ analysisResults, keyword, onClose }) => {
       );
     }
 
-    const sortedInstances = [...instances].sort((a, b) => a.before.localeCompare(b.before));
+    const sortedInstances = [...instances].sort((a, b) => 
+      (a.before || '').localeCompare(b.before || '')
+    );
     const visibleInstances = sortedInstances.slice(0, showCount);
 
     const width = containerRef.current?.clientWidth || 800;
-    const height = containerRef.current?.clientHeight || 600;
-    const centerX = width / 2;
-    const centerY = height / 2;
-
     const lineHeight = 24;
-    const totalHeight = visibleInstances.length * lineHeight;
-    const startY = -totalHeight / 2;
-    const lineWidth = 300;
-    const textOffset = 40;
+    const totalHeight = Math.max(viewportHeight, visibleInstances.length * lineHeight + 100);
+    const lineWidth = 60;
+    const textOffset = 70;
+    const centerX = width / 2;
+    const contentStartY = 60;
+
+    // Helper function to render text with highlighted keyword
+    const renderContextText = (text, isHovered) => {
+      if (!isHovered) return text;
+
+      const parts = text.split(new RegExp(`(${keyword})`, 'i'));
+      return parts.map((part, index) => {
+        if (part.toLowerCase() === keyword.toLowerCase()) {
+          return (
+            <tspan key={index} className="fill-blue-600 dark:fill-blue-400 font-bold">
+              {part}
+            </tspan>
+          );
+        }
+        return <tspan key={index}>{part}</tspan>;
+      });
+    };
 
     return (
-      <svg 
-        width="100%" 
-        height="100%" 
-        className="transform-gpu"
-        style={{ transform: `scale(${zoom})` }}
-      >
-        <g transform={`translate(${centerX}, ${centerY})`}>
+      <div className="w-full h-full overflow-y-auto overflow-x-hidden">
+        <svg 
+          width={width}
+          height={totalHeight}
+          className="transform-gpu"
+          style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}
+        >
+          <text
+            x={centerX}
+            y={30}
+            textAnchor="middle"
+            className="fill-gray-500 dark:fill-gray-400 text-sm"
+          >
+            Showing {visibleInstances.length} of {instances.length} matches
+          </text>
+
+          <text
+            x={centerX}
+            y={contentStartY - 10}
+            textAnchor="middle"
+            alignmentBaseline="middle"
+            className="fill-blue-600 dark:fill-blue-400 font-bold text-lg"
+          >
+            {keyword}
+          </text>
+
+          {visibleInstances.map((_, index) => {
+            const y = contentStartY + (index * lineHeight);
+            return (
+              <g key={`lines-${index}`}>
+                <line 
+                  x1={centerX - lineWidth} 
+                  x2={centerX}
+                  y1={y}
+                  y2={y}
+                  className="stroke-gray-200 dark:stroke-gray-700"
+                  strokeWidth={1}
+                />
+                <line 
+                  x1={centerX}
+                  x2={centerX + lineWidth} 
+                  y1={y}
+                  y2={y}
+                  className="stroke-gray-200 dark:stroke-gray-700"
+                  strokeWidth={1}
+                />
+              </g>
+            );
+          })}
+
           {visibleInstances.map((instance, index) => {
-            const y = startY + (index * lineHeight);
-            const uniqueId = `${instance.documentId}-${instance.position}`;
+            const y = contentStartY + (index * lineHeight);
+            const uniqueId = `${instance.documentId}-${instance.position}-${index}`;
+            const isHovered = hoveredLine === uniqueId;
 
             return (
               <g 
@@ -123,50 +187,43 @@ const WordTree = ({ analysisResults, keyword, onClose }) => {
                 onMouseLeave={() => setHoveredLine(null)}
                 className="opacity-90 hover:opacity-100 transition-opacity"
               >
-                {/* Before text */}
-                <text 
-                  x={-textOffset}
-                  y={y} 
-                  textAnchor="end"
-                  alignmentBaseline="middle"
-                  className="fill-gray-600 dark:fill-gray-300 text-sm font-medium"
-                >
-                  {instance.before}
-                </text>
+                {!isHovered ? (
+                  <>
+                    <text 
+                      x={centerX - textOffset}
+                      y={y} 
+                      textAnchor="end"
+                      alignmentBaseline="middle"
+                      className="fill-gray-600 dark:fill-gray-300 text-sm font-medium"
+                    >
+                      {instance.before || ''}
+                    </text>
 
-                {/* Lines */}
-                <line 
-                  x1={-lineWidth} 
-                  x2="0"
-                  y1={y}
-                  y2={y}
-                  className="stroke-gray-300 dark:stroke-gray-600"
-                  strokeWidth={1}
-                />
-                <line 
-                  x1="0"
-                  x2={lineWidth} 
-                  y1={y}
-                  y2={y}
-                  className="stroke-gray-300 dark:stroke-gray-600"
-                  strokeWidth={1}
-                />
+                    <text 
+                      x={centerX + textOffset}
+                      y={y}
+                      textAnchor="start"
+                      alignmentBaseline="middle"
+                      className="fill-gray-600 dark:fill-gray-300 text-sm font-medium"
+                    >
+                      {instance.after || ''}
+                    </text>
+                  </>
+                ) : (
+                  <text 
+                    x={centerX}
+                    y={y}
+                    textAnchor="middle"
+                    alignmentBaseline="middle"
+                    className="fill-gray-600 dark:fill-gray-300 text-sm font-medium"
+                  >
+                    {renderContextText(instance.fullContext, true)}
+                  </text>
+                )}
 
-                {/* After text */}
-                <text 
-                  x={textOffset}
-                  y={y}
-                  textAnchor="start"
-                  alignmentBaseline="middle"
-                  className="fill-gray-600 dark:fill-gray-300 text-sm font-medium"
-                >
-                  {instance.after}
-                </text>
-
-                {/* Document name (visible on hover) */}
-                {hoveredLine === uniqueId && (
+                {isHovered && (
                   <text
-                    x={lineWidth + 30}
+                    x={centerX + 300}
                     y={y}
                     textAnchor="start"
                     alignmentBaseline="middle"
@@ -178,29 +235,19 @@ const WordTree = ({ analysisResults, keyword, onClose }) => {
               </g>
             );
           })}
+        </svg>
 
-          {/* Central keyword */}
-          <text
-            x="0"
-            y={0}
-            textAnchor="middle"
-            alignmentBaseline="middle"
-            className="fill-blue-600 dark:fill-blue-400 font-bold text-lg"
-          >
-            {keyword}
-          </text>
-
-          {/* Total count indicator */}
-          <text
-            x="0"
-            y={-totalHeight/2 - 20}
-            textAnchor="middle"
-            className="fill-gray-500 dark:fill-gray-400 text-sm"
-          >
-            Showing {visibleInstances.length} of {instances.length} matches
-          </text>
-        </g>
-      </svg>
+        {showCount < instances.length && (
+          <div className="flex justify-center py-4">
+            <button
+              onClick={() => setShowCount(prev => prev + 50)}
+              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+            >
+              Load More Results
+            </button>
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -240,7 +287,7 @@ const WordTree = ({ analysisResults, keyword, onClose }) => {
               value={selectedDoc}
               onChange={(e) => {
                 setSelectedDoc(e.target.value);
-                setShowCount(50);
+                setShowCount(100);
               }}
               className="p-2 rounded-md border border-gray-300 dark:border-gray-600
                        bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
