@@ -17,19 +17,52 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
       fuzzyMatchThreshold: keyword.fuzzyMatchThreshold,
       contextBefore: keyword.contextBefore,
       contextAfter: keyword.contextAfter,
-      contextRange: keyword.contextRange
+      contextRangeBefore: keyword.contextRangeBefore,
+      contextRangeAfter: keyword.contextRangeAfter,
+      exactContextBefore: keyword.exactContextBefore,
+      exactContextAfter: keyword.exactContextAfter,
+      fuzzyContextBefore: keyword.fuzzyContextBefore,
+      fuzzyContextAfter: keyword.fuzzyContextAfter,
+      fuzzyContextThresholdBefore: keyword.fuzzyContextThresholdBefore,
+      fuzzyContextThresholdAfter: keyword.fuzzyContextThresholdAfter,
+      contextLogicType: keyword.contextLogicType
     })}`
   }));
 
-  function checkContextMatch(text, position, contextWords, range) {
+  function checkContextMatch(text, position, contextWords, isExactMatch, isFuzzyMatch, fuzzyThreshold, range, isBeforeContext) {
     if (!contextWords || contextWords.length === 0) return true;
     
     const words = text.split(/\s+/);
-    const startPos = Math.max(0, position - range);
-    const endPos = Math.min(words.length, position + range);
+    const startPos = isBeforeContext ? Math.max(0, position - range) : position + 1;
+    const endPos = isBeforeContext ? position : Math.min(words.length, position + range + 1);
     const contextText = words.slice(startPos, endPos).join(' ');
+    const contextWordsArray = contextWords.filter(word => word.length > 0);
     
-    return contextWords.some(word => contextText.toLowerCase().includes(word.toLowerCase()));
+    if (isExactMatch) {
+      // For exact matching, look for character sequences anywhere in the context
+      return contextWordsArray.some(word => 
+        contextText.toLowerCase().includes(word.toLowerCase())
+      );
+    } else if (isFuzzyMatch) {
+      // For fuzzy matching, check similarity with each word in context
+      return contextWordsArray.some(targetWord => {
+        // Split context into individual words for comparison
+        const contextWords = contextText.toLowerCase().split(/\s+/);
+        return contextWords.some(contextWord => {
+          const similarity = stringSimilarity.compareTwoStrings(
+            contextWord,
+            targetWord.toLowerCase()
+          );
+          return similarity >= fuzzyThreshold;
+        });
+      });
+    } else {
+      // For whole word matching, ensure word boundaries
+      return contextWordsArray.some(word => {
+        const regex = new RegExp(`\\b${word.toLowerCase()}\\b`);
+        return regex.test(contextText.toLowerCase());
+      });
+    }
   }
 
   function checkFuzzyMatch(word1, word2, threshold, caseSensitive) {
@@ -91,7 +124,8 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
         keyword.contextBefore.split(',').map(w => w.trim()).filter(w => w) : [];
       const contextAfter = keyword.contextAfter ? 
         keyword.contextAfter.split(',').map(w => w.trim()).filter(w => w) : [];
-      const contextRange = keyword.contextRange || 5;
+      const contextRangeBefore = keyword.contextRangeBefore || 5;
+      const contextRangeAfter = keyword.contextRangeAfter || 5;
       
       const matches = [];
 
@@ -101,26 +135,65 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
         for (const match of exactMatches) {
           const contextStart = Math.max(0, doc.content.lastIndexOf(' ', match.index) + 1);
           const contextEnd = doc.content.indexOf(' ', match.index + keyword.word.length);
-          const context = doc.content.slice(
-            Math.max(0, contextStart - 50),
-            contextEnd === -1 ? Math.min(contextEnd + 50, doc.content.length) : contextEnd + 50
-          );
-
           const wordIndex = doc.content.slice(0, match.index).split(/\s+/).length - 1;
           
-          const hasValidContext = (
-            checkContextMatch(doc.content, wordIndex, contextBefore, contextRange) &&
-            checkContextMatch(doc.content, wordIndex, contextAfter, contextRange)
-          );
+          // Check context based on logic type (AND/OR)
+          const hasValidContext = keyword.contextLogicType === 'AND' ?
+            (checkContextMatch(
+              doc.content, 
+              wordIndex, 
+              contextBefore, 
+              keyword.exactContextBefore,
+              keyword.fuzzyContextBefore,
+              keyword.fuzzyContextThresholdBefore,
+              contextRangeBefore,
+              true
+            ) &&
+            checkContextMatch(
+              doc.content,
+              wordIndex,
+              contextAfter,
+              keyword.exactContextAfter,
+              keyword.fuzzyContextAfter,
+              keyword.fuzzyContextThresholdAfter,
+              contextRangeAfter,
+              false
+            )) :
+            (contextBefore.length === 0 && contextAfter.length === 0) ||
+            checkContextMatch(
+              doc.content,
+              wordIndex,
+              contextBefore,
+              keyword.exactContextBefore,
+              keyword.fuzzyContextBefore,
+              keyword.fuzzyContextThresholdBefore,
+              contextRangeBefore,
+              true
+            ) ||
+            checkContextMatch(
+              doc.content,
+              wordIndex,
+              contextAfter,
+              keyword.exactContextAfter,
+              keyword.fuzzyContextAfter,
+              keyword.fuzzyContextThresholdAfter,
+              contextRangeAfter,
+              false
+            );
 
           if (hasValidContext) {
+            // Extract context using different ranges for before and after
+            const beforeContextStart = Math.max(0, contextStart - (contextRangeBefore * 10));
+            const afterContextEnd = contextEnd === -1 ? 
+              doc.content.length : 
+              Math.min(contextEnd + (contextRangeAfter * 10), doc.content.length);
+
             matches.push({
               position: match.index,
               term: match.matchedText,
-              context: context.trim(),
-              wordsBefore: doc.content.slice(Math.max(0, contextStart - 50), match.index).trim(),
-              wordsAfter: doc.content.slice(match.index + keyword.word.length, 
-                contextEnd === -1 ? doc.content.length : contextEnd + 50).trim(),
+              context: doc.content.slice(beforeContextStart, afterContextEnd).trim(),
+              wordsBefore: doc.content.slice(beforeContextStart, match.index).trim(),
+              wordsAfter: doc.content.slice(match.index + keyword.word.length, afterContextEnd).trim(),
               similarity: 1
             });
           }
@@ -134,22 +207,59 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
             (keyword.caseSensitive ? currentWord === searchTerm : currentWord.toLowerCase() === searchTerm.toLowerCase());
           
           if (isMatch) {
-            const hasValidContext = (
-              checkContextMatch(documentWords.join(' '), i, contextBefore, contextRange) &&
-              checkContextMatch(documentWords.join(' '), i, contextAfter, contextRange)
-            );
+            const hasValidContext = keyword.contextLogicType === 'AND' ?
+              (checkContextMatch(
+                documentWords.join(' '),
+                i,
+                contextBefore,
+                keyword.exactContextBefore,
+                keyword.fuzzyContextBefore,
+                keyword.fuzzyContextThresholdBefore,
+                contextRangeBefore,
+                true
+              ) &&
+              checkContextMatch(
+                documentWords.join(' '),
+                i,
+                contextAfter,
+                keyword.exactContextAfter,
+                keyword.fuzzyContextAfter,
+                keyword.fuzzyContextThresholdAfter,
+                contextRangeAfter,
+                false
+              )) :
+              (contextBefore.length === 0 && contextAfter.length === 0) ||
+              checkContextMatch(
+                documentWords.join(' '),
+                i,
+                contextBefore,
+                keyword.exactContextBefore,
+                keyword.fuzzyContextBefore,
+                keyword.fuzzyContextThresholdBefore,
+                contextRangeBefore,
+                true
+              ) ||
+              checkContextMatch(
+                documentWords.join(' '),
+                i,
+                contextAfter,
+                keyword.exactContextAfter,
+                keyword.fuzzyContextAfter,
+                keyword.fuzzyContextThresholdAfter,
+                contextRangeAfter,
+                false
+              );
             
             if (hasValidContext) {
-              const contextStart = Math.max(0, i - contextRange);
-              const contextEnd = Math.min(documentWords.length, i + contextRange + 1);
-              const context = documentWords.slice(contextStart, contextEnd).join(' ');
+              const contextStartIdx = Math.max(0, i - contextRangeBefore);
+              const contextEndIdx = Math.min(documentWords.length, i + contextRangeAfter + 1);
               
               matches.push({
                 position: i,
                 term: documentWords[i],
-                context: context,
-                wordsBefore: documentWords.slice(contextStart, i).join(' '),
-                wordsAfter: documentWords.slice(i + 1, contextEnd).join(' '),
+                context: documentWords.slice(contextStartIdx, contextEndIdx).join(' '),
+                wordsBefore: documentWords.slice(contextStartIdx, i).join(' '),
+                wordsAfter: documentWords.slice(i + 1, contextEndIdx).join(' '),
                 similarity: keyword.useFuzzyMatch ? 
                   stringSimilarity.compareTwoStrings(currentWord, searchTerm) : 1
               });
@@ -170,7 +280,15 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
           fuzzyMatchThreshold: keyword.fuzzyMatchThreshold,
           contextBefore: keyword.contextBefore,
           contextAfter: keyword.contextAfter,
-          contextRange: keyword.contextRange
+          contextRangeBefore: keyword.contextRangeBefore,
+          contextRangeAfter: keyword.contextRangeAfter,
+          exactContextBefore: keyword.exactContextBefore,
+          exactContextAfter: keyword.exactContextAfter,
+          fuzzyContextBefore: keyword.fuzzyContextBefore,
+          fuzzyContextAfter: keyword.fuzzyContextAfter,
+          fuzzyContextThresholdBefore: keyword.fuzzyContextThresholdBefore,
+          fuzzyContextThresholdAfter: keyword.fuzzyContextThresholdAfter,
+          contextLogicType: keyword.contextLogicType
         }
       };
 
