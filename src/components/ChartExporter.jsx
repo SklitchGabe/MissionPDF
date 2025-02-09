@@ -75,30 +75,30 @@ const ChartExporter = ({ analysisResults }) => {
     title.innerText = 'Search Configuration Details';
     settingsDiv.appendChild(title);
 
-    // Create two-column layout
+    // Create grid container with three columns
     const grid = document.createElement('div');
     grid.style.display = 'grid';
-    grid.style.gridTemplateColumns = '1fr 1fr';
-    grid.style.gap = '15px';
+    grid.style.gridTemplateColumns = '1fr 1fr 1fr';
+    grid.style.gap = '12px';
     grid.style.width = '100%';
 
-    // Left column - Basic and Fuzzy settings
+    // Left column - Keyword matching settings
     const leftColumn = document.createElement('div');
     
     // Basic Settings Section
     const basicSettings = document.createElement('div');
-    basicSettings.style.marginBottom = '10px';
+    basicSettings.style.marginBottom = '8px';
     
     const basicTitle = document.createElement('div');
     basicTitle.style.fontSize = '11px';
     basicTitle.style.fontWeight = 'bold';
     basicTitle.style.color = '#2563eb';
-    basicTitle.style.marginBottom = '5px';
-    basicTitle.innerText = 'Basic Matching Settings';
+    basicTitle.style.marginBottom = '4px';
+    basicTitle.innerText = 'Keyword Matching Settings';
     basicSettings.appendChild(basicTitle);
 
     basicSettings.innerHTML += `
-      <div style="margin-bottom: 5px;">
+      <div style="margin-bottom: 4px;">
         <div style="font-weight: bold;">Case Sensitivity: ${settings.caseSensitive ? 'Enabled' : 'Disabled'}</div>
         <div style="color: #666; font-size: 9px; margin-left: 8px;">
           ${settings.caseSensitive ? 
@@ -106,7 +106,7 @@ const ChartExporter = ({ analysisResults }) => {
             'Matches can be found regardless of letter case'}
         </div>
       </div>
-      <div style="margin-bottom: 5px;">
+      <div style="margin-bottom: 4px;">
         <div style="font-weight: bold;">Exact Text Match: ${settings.useExactText ? 'Enabled' : 'Disabled'}</div>
         <div style="color: #666; font-size: 9px; margin-left: 8px;">
           ${settings.useExactText ? 
@@ -115,77 +115,90 @@ const ChartExporter = ({ analysisResults }) => {
         </div>
       </div>
     `;
-    leftColumn.appendChild(basicSettings);
 
-    // Fuzzy Matching Section
     if (settings.useFuzzyMatch) {
-      const fuzzySettings = document.createElement('div');
-      fuzzySettings.style.marginBottom = '10px';
-      
-      const fuzzyTitle = document.createElement('div');
-      fuzzyTitle.style.fontSize = '11px';
-      fuzzyTitle.style.fontWeight = 'bold';
-      fuzzyTitle.style.color = '#2563eb';
-      fuzzyTitle.style.marginBottom = '5px';
-      fuzzyTitle.innerText = 'Fuzzy Matching Settings';
-      fuzzySettings.appendChild(fuzzyTitle);
-
-      fuzzySettings.innerHTML += `
-        <div style="margin-bottom: 5px;">
-          <div style="font-weight: bold;">Similarity Threshold: ${(settings.fuzzyMatchThreshold * 100).toFixed(0)}%</div>
+      basicSettings.innerHTML += `
+        <div style="margin-top: 4px;">
+          <div style="font-weight: bold;">Fuzzy Matching: Enabled</div>
           <div style="color: #666; font-size: 9px; margin-left: 8px;">
-            Matches must be at least ${(settings.fuzzyMatchThreshold * 100).toFixed(0)}% similar
+            Similarity threshold: ${(settings.fuzzyMatchThreshold * 100).toFixed(0)}%
           </div>
         </div>
       `;
-      
-      leftColumn.appendChild(fuzzySettings);
     }
 
-    // Right column - Context settings
-    const rightColumn = document.createElement('div');
+    leftColumn.appendChild(basicSettings);
+
+    // Middle column - Context Before settings
+    const middleColumn = document.createElement('div');
     
-    const contextTitle = document.createElement('div');
-    contextTitle.style.fontSize = '11px';
-    contextTitle.style.fontWeight = 'bold';
-    contextTitle.style.color = '#2563eb';
-    contextTitle.style.marginBottom = '5px';
-    contextTitle.innerText = 'Context Requirements';
-    rightColumn.appendChild(contextTitle);
+    const contextBeforeTitle = document.createElement('div');
+    contextBeforeTitle.style.fontSize = '11px';
+    contextBeforeTitle.style.fontWeight = 'bold';
+    contextBeforeTitle.style.color = '#2563eb';
+    contextBeforeTitle.style.marginBottom = '4px';
+    contextBeforeTitle.innerText = 'Context Requirements (Before)';
+    middleColumn.appendChild(contextBeforeTitle);
 
-    if (settings.contextBefore || settings.contextAfter) {
-      if (settings.contextBefore) {
-        rightColumn.innerHTML += `
-          <div style="margin-bottom: 5px;">
-            <div style="font-weight: bold;">Required Words Before:</div>
-            <div style="color: #666; font-size: 9px; margin-left: 8px;">
-              ${settings.contextBefore}
-            </div>
-          </div>
-        `;
-      }
+    // Context Logic Type
+    middleColumn.innerHTML += `
+      <div style="margin-bottom: 4px;">
+        <div style="font-weight: bold;">Context Logic: ${settings.contextLogicType}</div>
+        <div style="color: #666; font-size: 9px; margin-left: 8px;">
+          ${settings.contextLogicType === 'AND' ? 
+            'Requires all context conditions to match' : 
+            'Requires any context condition to match'}
+        </div>
+      </div>
+    `;
 
-      if (settings.contextAfter) {
-        rightColumn.innerHTML += `
-          <div style="margin-bottom: 5px;">
-            <div style="font-weight: bold;">Required Words After:</div>
-            <div style="color: #666; font-size: 9px; margin-left: 8px;">
-              ${settings.contextAfter}
-            </div>
-          </div>
-        `;
-      }
-
-      rightColumn.innerHTML += `
-        <div style="margin-bottom: 5px;">
-          <div style="font-weight: bold;">Search Range: ${settings.contextRange} words</div>
-          <div style="color: #666; font-size: 9px; margin-left: 8px;">
-            Required words must appear within this distance
+    // Context Before Settings
+    if (settings.contextBefore) {
+      middleColumn.innerHTML += `
+        <div style="margin-bottom: 4px;">
+          <div style="font-weight: bold;">Words Before:</div>
+          <div style="color: #666; font-size: 9px; margin-left: 8px; line-height: 1.2;">
+            Terms: ${settings.contextBefore}<br>
+            Range: ${settings.contextRangeBefore} words<br>
+            ${settings.exactContextBefore ? 'Exact character matching' : 
+              settings.fuzzyContextBefore ? 
+              `Fuzzy matching (${(settings.fuzzyContextThresholdBefore * 100).toFixed(0)}% similarity)` : 
+              'Whole word matching'}
           </div>
         </div>
       `;
-    } else {
+    }
+
+    // Right column - Context After settings
+    const rightColumn = document.createElement('div');
+    
+    const contextAfterTitle = document.createElement('div');
+    contextAfterTitle.style.fontSize = '11px';
+    contextAfterTitle.style.fontWeight = 'bold';
+    contextAfterTitle.style.color = '#2563eb';
+    contextAfterTitle.style.marginBottom = '4px';
+    contextAfterTitle.innerText = 'Context Requirements (After)';
+    rightColumn.appendChild(contextAfterTitle);
+
+    // Context After Settings
+    if (settings.contextAfter) {
       rightColumn.innerHTML += `
+        <div style="margin-bottom: 4px;">
+          <div style="font-weight: bold;">Words After:</div>
+          <div style="color: #666; font-size: 9px; margin-left: 8px; line-height: 1.2;">
+            Terms: ${settings.contextAfter}<br>
+            Range: ${settings.contextRangeAfter} words<br>
+            ${settings.exactContextAfter ? 'Exact character matching' : 
+              settings.fuzzyContextAfter ? 
+              `Fuzzy matching (${(settings.fuzzyContextThresholdAfter * 100).toFixed(0)}% similarity)` : 
+              'Whole word matching'}
+          </div>
+        </div>
+      `;
+    }
+
+    if (!settings.contextBefore && !settings.contextAfter) {
+      middleColumn.innerHTML += `
         <div style="color: #666; font-size: 9px;">
           No specific context requirements set
         </div>
@@ -194,6 +207,7 @@ const ChartExporter = ({ analysisResults }) => {
 
     // Add columns to grid
     grid.appendChild(leftColumn);
+    grid.appendChild(middleColumn);
     grid.appendChild(rightColumn);
     settingsDiv.appendChild(grid);
 
