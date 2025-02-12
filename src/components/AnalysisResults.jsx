@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   Download, 
@@ -8,8 +8,7 @@ import {
   Loader2, 
   BarChart2,
   X,
-  FileText,
-  ChevronUp
+  FileText 
 } from 'lucide-react';
 import WordTree from './WordTree';
 import TextViewer from './TextViewer';
@@ -63,6 +62,23 @@ function AnalysisResults({ results, documents }) {
   const [showChartExporter, setShowChartExporter] = useState(false);
   const [showRawText, setShowRawText] = useState(false);
   const [selectedTextDoc, setSelectedTextDoc] = useState(null);
+  const [selectedKeywordForText, setSelectedKeywordForText] = useState(null);
+
+  // Convert analysis results to keyword highlighting format
+  const getKeywordsForHighlighting = useCallback((docId) => {
+    const doc = results.find(d => d.documentId === docId);
+    if (!doc) return [];
+
+    return Object.entries(doc.keywords).map(([keywordId, data]) => ({
+      word: data.word,
+      settings: {
+        caseSensitive: data.originalSettings.caseSensitive,
+        useExactText: data.originalSettings.useExactText,
+        useFuzzyMatch: data.originalSettings.useFuzzyMatch,
+        fuzzyMatchThreshold: data.originalSettings.fuzzyMatchThreshold
+      }
+    }));
+  }, [results]);
 
   const toggleDoc = useCallback((docId) => {
     setExpandedDocs(prev => {
@@ -88,6 +104,27 @@ function AnalysisResults({ results, documents }) {
       return newSet;
     });
   }, []);
+
+  const handleShowRawText = (docId, keywordId = null) => {
+    const document = documents.find(doc => doc.id === docId);
+    const keywordData = keywordId ? 
+      results.find(d => d.documentId === docId)?.keywords[keywordId] : 
+      null;
+
+    if (document) {
+      setSelectedTextDoc(document);
+      setSelectedKeywordForText(keywordData ? {
+        word: keywordData.word,
+        settings: {
+          caseSensitive: keywordData.originalSettings.caseSensitive,
+          useExactText: keywordData.originalSettings.useExactText,
+          useFuzzyMatch: keywordData.originalSettings.useFuzzyMatch,
+          fuzzyMatchThreshold: keywordData.originalSettings.fuzzyMatchThreshold
+        }
+      } : null);
+      setShowRawText(true);
+    }
+  };
 
   const processDataForExcel = async (results, onProgress) => {
     const summarySheetData = [];
@@ -186,45 +223,6 @@ function AnalysisResults({ results, documents }) {
     }
   }, [results]);
 
-  const handleShowRawText = (docId) => {
-    const document = documents.find(doc => doc.id === docId);
-    if (document) {
-      setSelectedTextDoc(document);
-      setShowRawText(true);
-    }
-  };
-
-  const renderMatchContext = (match, settings) => {
-    const maxDisplayLength = settings.displayContextRange * 10; // Approximate characters per word
-
-    return (
-      <div className="text-sm bg-gray-50 dark:bg-gray-700 p-2 rounded">
-        <div className="flex flex-col">
-          <div className="mt-1">
-            <span className="text-gray-600 dark:text-gray-400">
-              {match.wordsBefore.length > maxDisplayLength ? 
-                '... ' + match.wordsBefore.slice(-maxDisplayLength) :
-                match.wordsBefore}
-            </span>
-            <span className="mx-1 font-bold text-blue-600 dark:text-blue-400">
-              {match.term}
-            </span>
-            <span className="text-gray-600 dark:text-gray-400">
-              {match.wordsAfter.length > maxDisplayLength ?
-                match.wordsAfter.slice(0, maxDisplayLength) + ' ...' :
-                match.wordsAfter}
-            </span>
-          </div>
-          {match.similarity && match.similarity !== 1 && (
-            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Similarity: {match.similarity.toFixed(3)}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-  
   return (
     <div className="mt-8 bg-white dark:bg-gray-800 rounded-lg shadow p-4">
       <div className="flex justify-between items-center mb-4">
@@ -330,7 +328,7 @@ function AnalysisResults({ results, documents }) {
                                   'Hide Matches' : 'Show Matches'}
                               </button>
                               <button
-                                onClick={() => handleShowRawText(doc.documentId)}
+                                onClick={() => handleShowRawText(doc.documentId, keywordId)}
                                 className="text-green-500 hover:text-green-600 text-sm flex items-center gap-1"
                               >
                                 <FileText className="h-4 w-4" />
@@ -345,7 +343,28 @@ function AnalysisResults({ results, documents }) {
                               <div className="pl-4 space-y-2">
                                 {data.matches.map((match, idx) => (
                                   <div key={idx}>
-                                    {renderMatchContext(match, data.originalSettings)}
+                                    <div 
+                                      className="text-sm bg-gray-50 dark:bg-gray-700 p-2 rounded"
+                                    >
+                                      <div className="flex flex-col">
+                                        <div className="mt-1">
+                                          <span className="text-gray-600 dark:text-gray-400">
+                                            {match.wordsBefore}
+                                          </span>
+                                          <span className="mx-1 font-bold text-blue-600 dark:text-blue-400">
+                                            {match.term}
+                                          </span>
+                                          <span className="text-gray-600 dark:text-gray-400">
+                                            {match.wordsAfter}
+                                          </span>
+                                        </div>
+                                        {match.similarity && match.similarity !== 1 && (
+                                          <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                            Similarity: {match.similarity.toFixed(3)}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -454,9 +473,12 @@ function AnalysisResults({ results, documents }) {
       {showRawText && selectedTextDoc && (
         <TextViewer
           document={selectedTextDoc}
+          highlightKeywords={getKeywordsForHighlighting(selectedTextDoc.id)}
+          initialKeyword={selectedKeywordForText}
           onClose={() => {
             setShowRawText(false);
             setSelectedTextDoc(null);
+            setSelectedKeywordForText(null);
           }}
         />
       )}
