@@ -2,13 +2,15 @@ import React, { useState } from 'react';
 import { Plus, X, Search, ChevronDown, ChevronUp } from 'lucide-react';
 
 const KeywordAnalyzer = ({ documents, onAnalyze }) => {
-  const [keywords, setKeywords] = useState([{ 
+  // Initialize keyword state with all required fields
+  const initialKeywordState = {
     word: '',
     category: '',
     contextBefore: '',
     contextAfter: '',
     contextRangeBefore: 5,
     contextRangeAfter: 5,
+    displayContextRange: 20, // New field for display context
     showAdvanced: false,
     useFuzzyMatch: false,
     fuzzyMatchThreshold: 0.8,
@@ -21,29 +23,12 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
     fuzzyContextThresholdBefore: 0.8,
     fuzzyContextThresholdAfter: 0.8,
     contextLogicType: 'OR'
-  }]);
+  };
+
+  const [keywords, setKeywords] = useState([initialKeywordState]);
 
   const addKeyword = () => {
-    setKeywords([...keywords, { 
-      word: '', 
-      category: '',
-      contextBefore: '',
-      contextAfter: '',
-      contextRangeBefore: 5,
-      contextRangeAfter: 5,
-      showAdvanced: false,
-      useFuzzyMatch: false,
-      fuzzyMatchThreshold: 0.8,
-      useExactText: false,
-      caseSensitive: false,
-      exactContextBefore: false,
-      exactContextAfter: false,
-      fuzzyContextBefore: false,
-      fuzzyContextAfter: false,
-      fuzzyContextThresholdBefore: 0.8,
-      fuzzyContextThresholdAfter: 0.8,
-      contextLogicType: 'OR'
-    }]);
+    setKeywords([...keywords, { ...initialKeywordState }]);
   };
 
   const removeKeyword = (index) => {
@@ -54,27 +39,44 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
     const newKeywords = [...keywords];
     newKeywords[index] = { ...newKeywords[index], [field]: value };
     
-    // If exact text is enabled, disable fuzzy matching
-    if (field === 'useExactText' && value === true) {
-      newKeywords[index].useFuzzyMatch = false;
-    }
-    // If fuzzy matching is enabled, disable exact text
-    if (field === 'useFuzzyMatch' && value === true) {
-      newKeywords[index].useExactText = false;
-    }
-    
-    // For context words, disable exact match if fuzzy is enabled and vice versa
-    if (field === 'exactContextBefore' && value === true) {
-      newKeywords[index].fuzzyContextBefore = false;
-    }
-    if (field === 'fuzzyContextBefore' && value === true) {
-      newKeywords[index].exactContextBefore = false;
-    }
-    if (field === 'exactContextAfter' && value === true) {
-      newKeywords[index].fuzzyContextAfter = false;
-    }
-    if (field === 'fuzzyContextAfter' && value === true) {
-      newKeywords[index].exactContextAfter = false;
+    // Handle mutual exclusivity of options
+    switch (field) {
+      case 'useExactText':
+        if (value === true) {
+          newKeywords[index].useFuzzyMatch = false;
+        }
+        break;
+      case 'useFuzzyMatch':
+        if (value === true) {
+          newKeywords[index].useExactText = false;
+        }
+        break;
+      case 'exactContextBefore':
+        if (value === true) {
+          newKeywords[index].fuzzyContextBefore = false;
+        }
+        break;
+      case 'fuzzyContextBefore':
+        if (value === true) {
+          newKeywords[index].exactContextBefore = false;
+        }
+        break;
+      case 'exactContextAfter':
+        if (value === true) {
+          newKeywords[index].fuzzyContextAfter = false;
+        }
+        break;
+      case 'fuzzyContextAfter':
+        if (value === true) {
+          newKeywords[index].exactContextAfter = false;
+        }
+        break;
+      case 'displayContextRange':
+        // Ensure display context range stays within bounds
+        newKeywords[index].displayContextRange = Math.max(5, Math.min(100, parseInt(value) || 20));
+        break;
+      default:
+        break;
     }
     
     setKeywords(newKeywords);
@@ -99,6 +101,33 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
     onAnalyze(validKeywords);
   };
 
+  // Helper function to render the number input fields consistently
+  const renderNumberInput = (index, field, value, label, min, max, step = 1, description) => (
+    <div>
+      <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
+        {label}
+      </label>
+      <input
+        type="number"
+        value={value}
+        onChange={(e) => updateKeyword(index, field, 
+          field === 'displayContextRange' ? 
+            Math.max(min, Math.min(max, parseInt(e.target.value) || min)) :
+            e.target.value)}
+        className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
+                 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+        min={min}
+        max={max}
+        step={step}
+      />
+      {description && (
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          {description}
+        </p>
+      )}
+    </div>
+  );
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mt-8">
       <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
@@ -108,6 +137,7 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
       <div className="space-y-4">
         {keywords.map((keyword, index) => (
           <div key={index} className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+            {/* Keyword Header */}
             <div className="flex justify-between mb-4">
               <h3 className="text-lg font-medium text-gray-800 dark:text-gray-200">
                 Keyword {index + 1}
@@ -116,12 +146,14 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
                 <button
                   onClick={() => removeKeyword(index)}
                   className="text-red-500 hover:text-red-600 dark:text-red-400"
+                  aria-label="Remove keyword"
                 >
                   <X className="h-4 w-4" />
                 </button>
               )}
             </div>
 
+            {/* Basic Inputs */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
@@ -152,6 +184,19 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
               </div>
             </div>
 
+            {/* Display Context Range Control */}
+            {renderNumberInput(
+              index,
+              'displayContextRange',
+              keyword.displayContextRange,
+              'Display Context Range (words to show around matches)',
+              5,
+              100,
+              5,
+              'Number of words to display before and after each match (5-100)'
+            )}
+
+            {/* Advanced Options Toggle */}
             <div className="mt-4">
               <button
                 onClick={() => toggleAdvanced(index)}
@@ -325,24 +370,16 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
                           </p>
                         </div>
 
-                        <div>
-                          <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-                            Context Range Before (words)
-                          </label>
-                          <input
-                            type="number"
-                            value={keyword.contextRangeBefore}
-                            onChange={(e) => updateKeyword(index, 'contextRangeBefore', 
-                              Math.max(1, parseInt(e.target.value) || 5))}
-                            className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
-                                     bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            min="1"
-                            max="50"
-                          />
-                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            Number of words to search before matches (1-50)
-                          </p>
-                        </div>
+                        {renderNumberInput(
+                          index,
+                          'contextRangeBefore',
+                          keyword.contextRangeBefore,
+                          'Context Range Before (words)',
+                          1,
+                          50,
+                          1,
+                          'Number of words to search before matches (1-50)'
+                        )}
                       </div>
 
                       {/* After Context */}
@@ -414,24 +451,16 @@ const KeywordAnalyzer = ({ documents, onAnalyze }) => {
                           </p>
                         </div>
 
-                        <div>
-                          <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">
-                            Context Range After (words)
-                          </label>
-                          <input
-                            type="number"
-                            value={keyword.contextRangeAfter}
-                            onChange={(e) => updateKeyword(index, 'contextRangeAfter', 
-                              Math.max(1, parseInt(e.target.value) || 5))}
-                            className="w-full p-2 border border-gray-300 dark:border-gray-600 rounded-md 
-                                     bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            min="1"
-                            max="50"
-                          />
-                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            Number of words to search after matches (1-50)
-                          </p>
-                        </div>
+                        {renderNumberInput(
+                          index,
+                          'contextRangeAfter',
+                          keyword.contextRangeAfter,
+                          'Context Range After (words)',
+                          1,
+                          50,
+                          1,
+                          'Number of words to search after matches (1-50)'
+                        )}
                       </div>
                     </div>
                   </div>

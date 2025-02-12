@@ -8,7 +8,8 @@ import {
   Loader2, 
   BarChart2,
   X,
-  FileText 
+  FileText,
+  ChevronUp
 } from 'lucide-react';
 import WordTree from './WordTree';
 import TextViewer from './TextViewer';
@@ -27,7 +28,8 @@ const createKeywordConfigId = (keyword, settings) => {
     fuzzyMatchThreshold: settings.fuzzyMatchThreshold,
     contextBefore: settings.contextBefore,
     contextAfter: settings.contextAfter,
-    contextRange: settings.contextRange
+    contextRange: settings.contextRange,
+    displayContextRange: settings.displayContextRange
   });
   return `${keyword}_${settingsStr}`;
 };
@@ -102,7 +104,8 @@ function AnalysisResults({ results, documents }) {
           data.originalSettings.caseSensitive ? 'Case Sensitive' : 'Case Insensitive',
           data.originalSettings.useExactText ? 'Exact Match' : 
           data.originalSettings.useFuzzyMatch ? `Fuzzy (${data.originalSettings.fuzzyMatchThreshold})` : 
-          'Normal Match'
+          'Normal Match',
+          `Display Context: ${data.originalSettings.displayContextRange} words`
         ].join(', ');
 
         summaryRow[`${data.word} (${settingsStr})`] = data.count || 0;
@@ -126,10 +129,10 @@ function AnalysisResults({ results, documents }) {
                 data.originalSettings.caseSensitive ? 'Case Sensitive' : 'Case Insensitive',
                 data.originalSettings.useExactText ? 'Exact Match' : 
                 data.originalSettings.useFuzzyMatch ? `Fuzzy (${data.originalSettings.fuzzyMatchThreshold})` : 
-                'Normal Match'
+                'Normal Match',
+                `Display Context: ${data.originalSettings.displayContextRange} words`
               ].join(', '),
               'Category': data.category || '',
-              'Context': match.context || '',
               'Words Before': match.wordsBefore || '',
               'Matched Text': match.term || '',
               'Words After': match.wordsAfter || '',
@@ -189,6 +192,37 @@ function AnalysisResults({ results, documents }) {
       setSelectedTextDoc(document);
       setShowRawText(true);
     }
+  };
+
+  const renderMatchContext = (match, settings) => {
+    const maxDisplayLength = settings.displayContextRange * 10; // Approximate characters per word
+
+    return (
+      <div className="text-sm bg-gray-50 dark:bg-gray-700 p-2 rounded">
+        <div className="flex flex-col">
+          <div className="mt-1">
+            <span className="text-gray-600 dark:text-gray-400">
+              {match.wordsBefore.length > maxDisplayLength ? 
+                '... ' + match.wordsBefore.slice(-maxDisplayLength) :
+                match.wordsBefore}
+            </span>
+            <span className="mx-1 font-bold text-blue-600 dark:text-blue-400">
+              {match.term}
+            </span>
+            <span className="text-gray-600 dark:text-gray-400">
+              {match.wordsAfter.length > maxDisplayLength ?
+                match.wordsAfter.slice(0, maxDisplayLength) + ' ...' :
+                match.wordsAfter}
+            </span>
+          </div>
+          {match.similarity && match.similarity !== 1 && (
+            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Similarity: {match.similarity.toFixed(3)}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
   
   return (
@@ -280,7 +314,8 @@ function AnalysisResults({ results, documents }) {
                               data.originalSettings.caseSensitive ? 'Case Sensitive' : 'Case Insensitive',
                               data.originalSettings.useExactText ? 'Exact Match' : 
                               data.originalSettings.useFuzzyMatch ? `Fuzzy (${data.originalSettings.fuzzyMatchThreshold})` : 
-                              'Normal Match'
+                              'Normal Match',
+                              `Display Context: ${data.originalSettings.displayContextRange} words`
                             ].join(', ')}
                           </td>
                           <td className="py-2">{data.category}</td>
@@ -309,31 +344,8 @@ function AnalysisResults({ results, documents }) {
                             <td colSpan="5" className="py-2">
                               <div className="pl-4 space-y-2">
                                 {data.matches.map((match, idx) => (
-                                  <div 
-                                    key={idx}
-                                    className="text-sm bg-gray-50 dark:bg-gray-700 p-2 rounded"
-                                  >
-                                    <div className="flex flex-col">
-                                      <div className="font-medium text-gray-700 dark:text-gray-300">
-                                        Context:
-                                      </div>
-                                      <div className="mt-1">
-                                        <span className="text-gray-600 dark:text-gray-400">
-                                          {match.wordsBefore}
-                                        </span>
-                                        <span className="mx-1 font-bold text-blue-600 dark:text-blue-400">
-                                          {match.term}
-                                        </span>
-                                        <span className="text-gray-600 dark:text-gray-400">
-                                          {match.wordsAfter}
-                                        </span>
-                                      </div>
-                                      {match.similarity && match.similarity !== 1 && (
-                                        <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                          Similarity: {match.similarity.toFixed(3)}
-                                        </div>
-                                      )}
-                                    </div>
+                                  <div key={idx}>
+                                    {renderMatchContext(match, data.originalSettings)}
                                   </div>
                                 ))}
                               </div>
@@ -366,80 +378,80 @@ function AnalysisResults({ results, documents }) {
 
       {showWordTree && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-        <div className="relative w-[90vw] h-[90vh] bg-white dark:bg-gray-800 rounded-lg p-6">
-          <div className="absolute top-4 right-4 flex items-center gap-4">
-            <select
-              onChange={(e) => {
-                const selectedKeywordId = e.target.value;
-                if (selectedKeywordId) {
-                  const keywordData = results.find(doc => doc.keywords[selectedKeywordId])?.keywords[selectedKeywordId];
-                  if (keywordData) {
-                    setSelectedKeyword({
-                      word: keywordData.word,
-                      matches: results.flatMap(doc => 
-                        doc.keywords[selectedKeywordId]?.matches || []
-                      )
-                    });
+          <div className="relative w-[90vw] h-[90vh] bg-white dark:bg-gray-800 rounded-lg p-6">
+            <div className="absolute top-4 right-4 flex items-center gap-4">
+              <select
+                onChange={(e) => {
+                  const selectedKeywordId = e.target.value;
+                  if (selectedKeywordId) {
+                    const keywordData = results.find(doc => doc.keywords[selectedKeywordId])?.keywords[selectedKeywordId];
+                    if (keywordData) {
+                      setSelectedKeyword({
+                        word: keywordData.word,
+                        matches: results.flatMap(doc => 
+                          doc.keywords[selectedKeywordId]?.matches || []
+                        )
+                      });
+                    }
+                  } else {
+                    setSelectedKeyword(null);
                   }
-                } else {
+                }}
+                className="px-4 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                defaultValue=""
+              >
+                <option value="">Select a keyword...</option>
+                {Object.entries(results[0]?.keywords || {}).map(([keywordId, data]) => (
+                  <option key={keywordId} value={keywordId}>
+                    {data.word} ({results.reduce((total, doc) => 
+                      total + (doc.keywords[keywordId]?.matches?.length || 0), 0
+                    )} total matches)
+                  </option>
+                ))}
+              </select>
+              <select
+                onChange={(e) => setSelectedDoc(e.target.value)}
+                className="px-4 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                defaultValue="all"
+              >
+                <option value="all">All Documents</option>
+                {results.map(doc => (
+                  <option key={doc.documentId} value={doc.documentId}>
+                    {doc.documentName}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => {
+                  setShowWordTree(false);
                   setSelectedKeyword(null);
-                }
-              }}
-              className="px-4 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              defaultValue=""
-            >
-              <option value="">Select a keyword...</option>
-              {Object.entries(results[0]?.keywords || {}).map(([keywordId, data]) => (
-                <option key={keywordId} value={keywordId}>
-                  {data.word} ({results.reduce((total, doc) => 
-                    total + (doc.keywords[keywordId]?.matches?.length || 0), 0
-                  )} total matches)
-                </option>
-              ))}
-            </select>
-            <select
-              onChange={(e) => setSelectedDoc(e.target.value)}
-              className="px-4 py-2 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              defaultValue="all"
-            >
-              <option value="all">All Documents</option>
-              {results.map(doc => (
-                <option key={doc.documentId} value={doc.documentId}>
-                  {doc.documentName}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={() => {
-                setShowWordTree(false);
-                setSelectedKeyword(null);
-              }}
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            >
-              <X className="h-6 w-6" />
-            </button>
-          </div>
-          
-          {selectedKeyword ? (
-            <WordTree
-              analysisResults={selectedDoc === 'all' ? results : 
-                results.filter(doc => doc.documentId === selectedDoc)}
-              keyword={selectedKeyword.word}
-              onClose={() => {
-                setShowWordTree(false);
-                setSelectedKeyword(null);
-              }}
-            />
-          ) : (
-            <div className="h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
-              Please select a keyword to view its word tree
+                }}
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                <X className="h-6 w-6" />
+              </button>
             </div>
-          )}
+            
+            {selectedKeyword ? (
+              <WordTree
+                analysisResults={selectedDoc === 'all' ? results : 
+                  results.filter(doc => doc.documentId === selectedDoc)}
+                keyword={selectedKeyword.word}
+                onClose={() => {
+                  setShowWordTree(false);
+                  setSelectedKeyword(null);
+                }}
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center text-gray-500 dark:text-gray-400">
+                Please select a keyword to view its word tree
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-    )}
+      )}
 
-    {showRawText && selectedTextDoc && (
+      {showRawText && selectedTextDoc && (
         <TextViewer
           document={selectedTextDoc}
           onClose={() => {

@@ -25,7 +25,8 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
       fuzzyContextAfter: keyword.fuzzyContextAfter,
       fuzzyContextThresholdBefore: keyword.fuzzyContextThresholdBefore,
       fuzzyContextThresholdAfter: keyword.fuzzyContextThresholdAfter,
-      contextLogicType: keyword.contextLogicType
+      contextLogicType: keyword.contextLogicType,
+      displayContextRange: keyword.displayContextRange || 20 // Default to 20 if not specified
     })}`
   }));
 
@@ -127,17 +128,30 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
     return similarity >= threshold;
   }
 
-  function findExactTextMatches(text, searchTerm, caseSensitive) {
+  function findExactTextMatches(text, searchTerm, caseSensitive, displayRange) {
     const matches = [];
     let lastIndex = 0;
     const searchTermToUse = caseSensitive ? searchTerm : searchTerm.toLowerCase();
     const textToSearch = caseSensitive ? text : text.toLowerCase();
+    const words = text.split(/\s+/);
 
     while ((lastIndex = textToSearch.indexOf(searchTermToUse, lastIndex)) !== -1) {
+      // Find the word position for this match
+      const textBefore = text.slice(0, lastIndex);
+      const wordPosition = textBefore.split(/\s+/).length - 1;
+      
+      // Extract display context based on displayRange
+      const startPos = Math.max(0, wordPosition - displayRange);
+      const endPos = Math.min(words.length, wordPosition + displayRange + 1);
+      
       matches.push({
         index: lastIndex,
-        matchedText: text.slice(lastIndex, lastIndex + searchTerm.length)
+        position: wordPosition,
+        matchedText: text.slice(lastIndex, lastIndex + searchTerm.length),
+        wordsBefore: words.slice(startPos, wordPosition).join(' '),
+        wordsAfter: words.slice(wordPosition + 1, endPos).join(' ')
       });
+      
       lastIndex += 1;
     }
 
@@ -173,27 +187,15 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
       const matches = [];
 
       if (keyword.useExactText) {
-        const exactMatches = findExactTextMatches(doc.content, keyword.word, keyword.caseSensitive);
+        const exactMatches = findExactTextMatches(doc.content, keyword.word, keyword.caseSensitive, keyword.displayContextRange);
         
         for (const match of exactMatches) {
-          const contextStart = Math.max(0, doc.content.lastIndexOf(' ', match.index) + 1);
-          const contextEnd = doc.content.indexOf(' ', match.index + keyword.word.length);
-          const wordIndex = doc.content.slice(0, match.index).split(/\s+/).length - 1;
-          
-          if (hasValidContext(doc.content, wordIndex, keyword)) {
-            const beforeContextStart = keyword.contextBefore ? 
-              Math.max(0, contextStart - (keyword.contextRangeBefore * 10)) : 
-              contextStart;
-            const afterContextEnd = keyword.contextAfter ? 
-              (contextEnd === -1 ? doc.content.length : Math.min(contextEnd + (keyword.contextRangeAfter * 10), doc.content.length)) : 
-              contextEnd;
-
+          if (hasValidContext(documentWords.join(' '), match.position, keyword)) {
             matches.push({
-              position: match.index,
+              position: match.position,
               term: match.matchedText,
-              context: doc.content.slice(beforeContextStart, afterContextEnd).trim(),
-              wordsBefore: doc.content.slice(beforeContextStart, match.index).trim(),
-              wordsAfter: doc.content.slice(match.index + keyword.word.length, afterContextEnd).trim(),
+              wordsBefore: match.wordsBefore,
+              wordsAfter: match.wordsAfter,
               similarity: 1
             });
           }
@@ -208,19 +210,14 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
           
           if (isMatch) {
             if (hasValidContext(documentWords.join(' '), i, keyword)) {
-              const contextStartIdx = keyword.contextBefore ? 
-                Math.max(0, i - keyword.contextRangeBefore) : 
-                Math.max(0, i - 5); // Default context for display
-              const contextEndIdx = keyword.contextAfter ? 
-                Math.min(documentWords.length, i + keyword.contextRangeAfter + 1) : 
-                Math.min(documentWords.length, i + 6); // Default context for display
+              const startIdx = Math.max(0, i - keyword.displayContextRange);
+              const endIdx = Math.min(documentWords.length, i + keyword.displayContextRange + 1);
               
               matches.push({
                 position: i,
                 term: documentWords[i],
-                context: documentWords.slice(contextStartIdx, contextEndIdx).join(' '),
-                wordsBefore: documentWords.slice(contextStartIdx, i).join(' '),
-                wordsAfter: documentWords.slice(i + 1, contextEndIdx).join(' '),
+                wordsBefore: documentWords.slice(startIdx, i).join(' '),
+                wordsAfter: documentWords.slice(i + 1, endIdx).join(' '),
                 similarity: keyword.useFuzzyMatch ? 
                   stringSimilarity.compareTwoStrings(currentWord, searchTerm) : 1
               });
@@ -249,7 +246,8 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
           fuzzyContextAfter: keyword.fuzzyContextAfter,
           fuzzyContextThresholdBefore: keyword.fuzzyContextThresholdBefore,
           fuzzyContextThresholdAfter: keyword.fuzzyContextThresholdAfter,
-          contextLogicType: keyword.contextLogicType
+          contextLogicType: keyword.contextLogicType,
+          displayContextRange: keyword.displayContextRange
         }
       };
 
