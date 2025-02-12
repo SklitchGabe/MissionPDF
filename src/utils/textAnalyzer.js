@@ -29,40 +29,91 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
     })}`
   }));
 
-  function checkContextMatch(text, position, contextWords, isExactMatch, isFuzzyMatch, fuzzyThreshold, range, isBeforeContext) {
-    if (!contextWords || contextWords.length === 0) return true;
-    
+  function checkContextMatch(text, position, contextSettings, direction) {
+    const {
+      contextBefore,
+      contextAfter,
+      exactContextBefore,
+      exactContextAfter,
+      fuzzyContextBefore,
+      fuzzyContextAfter,
+      fuzzyContextThresholdBefore,
+      fuzzyContextThresholdAfter,
+      contextRangeBefore,
+      contextRangeAfter
+    } = contextSettings;
+
+    // Get the appropriate context words and settings based on direction
+    const contextWords = direction === 'before' ? 
+      (contextBefore || '').split(',').map(w => w.trim()).filter(w => w.length > 0) :
+      (contextAfter || '').split(',').map(w => w.trim()).filter(w => w.length > 0);
+
+    // If no context words specified for this direction, return true
+    if (contextWords.length === 0) {
+      return true;
+    }
+
     const words = text.split(/\s+/);
-    const startPos = isBeforeContext ? Math.max(0, position - range) : position + 1;
-    const endPos = isBeforeContext ? position : Math.min(words.length, position + range + 1);
+    const contextRange = direction === 'before' ? contextRangeBefore : contextRangeAfter;
+    const startPos = direction === 'before' ? Math.max(0, position - contextRange) : position + 1;
+    const endPos = direction === 'before' ? position : Math.min(words.length, position + contextRange + 1);
     const contextText = words.slice(startPos, endPos).join(' ');
-    const contextWordsArray = contextWords.filter(word => word.length > 0);
-    
-    if (isExactMatch) {
-      // For exact matching, look for character sequences anywhere in the context
-      return contextWordsArray.some(word => 
-        contextText.toLowerCase().includes(word.toLowerCase())
-      );
-    } else if (isFuzzyMatch) {
-      // For fuzzy matching, check similarity with each word in context
-      return contextWordsArray.some(targetWord => {
-        // Split context into individual words for comparison
-        const contextWords = contextText.toLowerCase().split(/\s+/);
-        return contextWords.some(contextWord => {
+
+    // Check for matches based on settings
+    return contextWords.some(targetWord => {
+      if ((direction === 'before' && exactContextBefore) || 
+          (direction === 'after' && exactContextAfter)) {
+        return contextText.toLowerCase().includes(targetWord.toLowerCase());
+      } 
+      
+      if ((direction === 'before' && fuzzyContextBefore) || 
+          (direction === 'after' && fuzzyContextAfter)) {
+        return contextText.toLowerCase().split(/\s+/).some(contextWord => {
           const similarity = stringSimilarity.compareTwoStrings(
             contextWord,
             targetWord.toLowerCase()
           );
-          return similarity >= fuzzyThreshold;
+          return similarity >= (direction === 'before' ? 
+            fuzzyContextThresholdBefore : 
+            fuzzyContextThresholdAfter);
         });
-      });
-    } else {
-      // For whole word matching, ensure word boundaries
-      return contextWordsArray.some(word => {
-        const regex = new RegExp(`\\b${word.toLowerCase()}\\b`);
-        return regex.test(contextText.toLowerCase());
-      });
+      }
+      
+      const regex = new RegExp(`\\b${targetWord.toLowerCase()}\\b`);
+      return regex.test(contextText.toLowerCase());
+    });
+  }
+
+  function hasValidContext(text, position, contextSettings) {
+    // Parse context words
+    const beforeWords = (contextSettings.contextBefore || '').split(',')
+      .map(w => w.trim())
+      .filter(w => w.length > 0);
+    const afterWords = (contextSettings.contextAfter || '')
+      .split(',')
+      .map(w => w.trim())
+      .filter(w => w.length > 0);
+
+    // If no context words specified in either direction, return true
+    if (beforeWords.length === 0 && afterWords.length === 0) {
+      return true;
     }
+
+    // Check each direction only if context words are specified
+    const beforeMatches = beforeWords.length === 0 ? true :
+      checkContextMatch(text, position, contextSettings, 'before');
+    const afterMatches = afterWords.length === 0 ? true :
+      checkContextMatch(text, position, contextSettings, 'after');
+
+    // Apply logic type only if both directions have context words
+    if (beforeWords.length > 0 && afterWords.length > 0) {
+      return contextSettings.contextLogicType === 'AND' ? 
+        (beforeMatches && afterMatches) : 
+        (beforeMatches || afterMatches);
+    }
+
+    // If only one direction has context words, just return that result
+    return beforeWords.length > 0 ? beforeMatches : afterMatches;
   }
 
   function checkFuzzyMatch(word1, word2, threshold, caseSensitive) {
@@ -112,20 +163,12 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
     const documentWords = doc.content.split(/\s+/);
     
     for (const keyword of processedKeywords) {
-      // Add a small delay to prevent blocking
       await new Promise(resolve => setTimeout(resolve, 0));
 
       if (!keyword.word) continue;
       
       const searchTerm = keyword.caseSensitive ? keyword.word : keyword.word.toLowerCase();
       console.log(`Searching for keyword: "${searchTerm}" (case ${keyword.caseSensitive ? 'sensitive' : 'insensitive'})`);
-      
-      const contextBefore = keyword.contextBefore ? 
-        keyword.contextBefore.split(',').map(w => w.trim()).filter(w => w) : [];
-      const contextAfter = keyword.contextAfter ? 
-        keyword.contextAfter.split(',').map(w => w.trim()).filter(w => w) : [];
-      const contextRangeBefore = keyword.contextRangeBefore || 5;
-      const contextRangeAfter = keyword.contextRangeAfter || 5;
       
       const matches = [];
 
@@ -137,56 +180,13 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
           const contextEnd = doc.content.indexOf(' ', match.index + keyword.word.length);
           const wordIndex = doc.content.slice(0, match.index).split(/\s+/).length - 1;
           
-          // Check context based on logic type (AND/OR)
-          const hasValidContext = keyword.contextLogicType === 'AND' ?
-            (checkContextMatch(
-              doc.content, 
-              wordIndex, 
-              contextBefore, 
-              keyword.exactContextBefore,
-              keyword.fuzzyContextBefore,
-              keyword.fuzzyContextThresholdBefore,
-              contextRangeBefore,
-              true
-            ) &&
-            checkContextMatch(
-              doc.content,
-              wordIndex,
-              contextAfter,
-              keyword.exactContextAfter,
-              keyword.fuzzyContextAfter,
-              keyword.fuzzyContextThresholdAfter,
-              contextRangeAfter,
-              false
-            )) :
-            (contextBefore.length === 0 && contextAfter.length === 0) ||
-            checkContextMatch(
-              doc.content,
-              wordIndex,
-              contextBefore,
-              keyword.exactContextBefore,
-              keyword.fuzzyContextBefore,
-              keyword.fuzzyContextThresholdBefore,
-              contextRangeBefore,
-              true
-            ) ||
-            checkContextMatch(
-              doc.content,
-              wordIndex,
-              contextAfter,
-              keyword.exactContextAfter,
-              keyword.fuzzyContextAfter,
-              keyword.fuzzyContextThresholdAfter,
-              contextRangeAfter,
-              false
-            );
-
-          if (hasValidContext) {
-            // Extract context using different ranges for before and after
-            const beforeContextStart = Math.max(0, contextStart - (contextRangeBefore * 10));
-            const afterContextEnd = contextEnd === -1 ? 
-              doc.content.length : 
-              Math.min(contextEnd + (contextRangeAfter * 10), doc.content.length);
+          if (hasValidContext(doc.content, wordIndex, keyword)) {
+            const beforeContextStart = keyword.contextBefore ? 
+              Math.max(0, contextStart - (keyword.contextRangeBefore * 10)) : 
+              contextStart;
+            const afterContextEnd = keyword.contextAfter ? 
+              (contextEnd === -1 ? doc.content.length : Math.min(contextEnd + (keyword.contextRangeAfter * 10), doc.content.length)) : 
+              contextEnd;
 
             matches.push({
               position: match.index,
@@ -207,52 +207,13 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
             (keyword.caseSensitive ? currentWord === searchTerm : currentWord.toLowerCase() === searchTerm.toLowerCase());
           
           if (isMatch) {
-            const hasValidContext = keyword.contextLogicType === 'AND' ?
-              (checkContextMatch(
-                documentWords.join(' '),
-                i,
-                contextBefore,
-                keyword.exactContextBefore,
-                keyword.fuzzyContextBefore,
-                keyword.fuzzyContextThresholdBefore,
-                contextRangeBefore,
-                true
-              ) &&
-              checkContextMatch(
-                documentWords.join(' '),
-                i,
-                contextAfter,
-                keyword.exactContextAfter,
-                keyword.fuzzyContextAfter,
-                keyword.fuzzyContextThresholdAfter,
-                contextRangeAfter,
-                false
-              )) :
-              (contextBefore.length === 0 && contextAfter.length === 0) ||
-              checkContextMatch(
-                documentWords.join(' '),
-                i,
-                contextBefore,
-                keyword.exactContextBefore,
-                keyword.fuzzyContextBefore,
-                keyword.fuzzyContextThresholdBefore,
-                contextRangeBefore,
-                true
-              ) ||
-              checkContextMatch(
-                documentWords.join(' '),
-                i,
-                contextAfter,
-                keyword.exactContextAfter,
-                keyword.fuzzyContextAfter,
-                keyword.fuzzyContextThresholdAfter,
-                contextRangeAfter,
-                false
-              );
-            
-            if (hasValidContext) {
-              const contextStartIdx = Math.max(0, i - contextRangeBefore);
-              const contextEndIdx = Math.min(documentWords.length, i + contextRangeAfter + 1);
+            if (hasValidContext(documentWords.join(' '), i, keyword)) {
+              const contextStartIdx = keyword.contextBefore ? 
+                Math.max(0, i - keyword.contextRangeBefore) : 
+                Math.max(0, i - 5); // Default context for display
+              const contextEndIdx = keyword.contextAfter ? 
+                Math.min(documentWords.length, i + keyword.contextRangeAfter + 1) : 
+                Math.min(documentWords.length, i + 6); // Default context for display
               
               matches.push({
                 position: i,
