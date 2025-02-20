@@ -30,59 +30,59 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
     })}`
   }));
 
-  function checkContextMatch(text, position, contextSettings, direction) {
-    const {
-      contextBefore,
-      contextAfter,
-      exactContextBefore,
-      exactContextAfter,
-      fuzzyContextBefore,
-      fuzzyContextAfter,
-      fuzzyContextThresholdBefore,
-      fuzzyContextThresholdAfter,
-      contextRangeBefore,
-      contextRangeAfter
-    } = contextSettings;
+  function checkContextMatch(text, position, settings, direction) {
+    console.log(`Checking ${direction} context at position ${position}`);
+    
+    const words = text.split(/\s+/);
+    const contextWords = direction === 'before' 
+      ? (settings.contextBefore || '').split(',').map(w => w.trim()).filter(w => w.length > 0)
+      : (settings.contextAfter || '').split(',').map(w => w.trim()).filter(w => w.length > 0);
+      
+    const range = parseInt(direction === 'before' ? settings.contextRangeBefore : settings.contextRangeAfter);
+    
+    console.log('Context settings:', {
+      contextWords,
+      range,
+      exact: direction === 'before' ? settings.exactContextBefore : settings.exactContextAfter,
+      fuzzy: direction === 'before' ? settings.fuzzyContextBefore : settings.fuzzyContextAfter
+    });
 
-    // Get the appropriate context words and settings based on direction
-    const contextWords = direction === 'before' ? 
-      (contextBefore || '').split(',').map(w => w.trim()).filter(w => w.length > 0) :
-      (contextAfter || '').split(',').map(w => w.trim()).filter(w => w.length > 0);
+    // Get the exact slice of words within the specified range
+    const startIdx = direction === 'before' 
+      ? Math.max(0, position - range)
+      : position + 1;
+    const endIdx = direction === 'before'
+      ? position
+      : Math.min(words.length, position + range + 1);
+    
+    const contextSlice = words.slice(startIdx, endIdx);
+    console.log(`Checking context slice (${range} words ${direction}):`, contextSlice);
 
-    // If no context words specified for this direction, return true
-    if (contextWords.length === 0) {
-      return true;
+    // For each required context word, check if it exists in the range
+    for (const contextWord of contextWords) {
+      const found = contextSlice.some(word => {
+        if (direction === 'before' ? settings.exactContextBefore : settings.exactContextAfter) {
+          return word === contextWord;
+        } else if (direction === 'before' ? settings.fuzzyContextBefore : settings.fuzzyContextAfter) {
+          const threshold = direction === 'before' 
+            ? settings.fuzzyContextThresholdBefore 
+            : settings.fuzzyContextThresholdAfter;
+          return stringSimilarity.compareTwoStrings(word.toLowerCase(), contextWord.toLowerCase()) >= threshold;
+        } else {
+          return word.toLowerCase() === contextWord.toLowerCase();
+        }
+      });
+
+      console.log(`Context word "${contextWord}" ${found ? 'found' : 'not found'} in ${range}-word ${direction} range`);
+      
+      if (found && settings.contextLogicType === 'OR') {
+        return true;
+      } else if (!found && settings.contextLogicType === 'AND') {
+        return false;
+      }
     }
 
-    const words = text.split(/\s+/);
-    const contextRange = direction === 'before' ? contextRangeBefore : contextRangeAfter;
-    const startPos = direction === 'before' ? Math.max(0, position - contextRange) : position + 1;
-    const endPos = direction === 'before' ? position : Math.min(words.length, position + contextRange + 1);
-    const contextText = words.slice(startPos, endPos).join(' ');
-
-    // Check for matches based on settings
-    return contextWords.some(targetWord => {
-      if ((direction === 'before' && exactContextBefore) || 
-          (direction === 'after' && exactContextAfter)) {
-        return contextText.toLowerCase().includes(targetWord.toLowerCase());
-      } 
-      
-      if ((direction === 'before' && fuzzyContextBefore) || 
-          (direction === 'after' && fuzzyContextAfter)) {
-        return contextText.toLowerCase().split(/\s+/).some(contextWord => {
-          const similarity = stringSimilarity.compareTwoStrings(
-            contextWord,
-            targetWord.toLowerCase()
-          );
-          return similarity >= (direction === 'before' ? 
-            fuzzyContextThresholdBefore : 
-            fuzzyContextThresholdAfter);
-        });
-      }
-      
-      const regex = new RegExp(`\\b${targetWord.toLowerCase()}\\b`);
-      return regex.test(contextText.toLowerCase());
-    });
+    return settings.contextLogicType === 'AND';
   }
 
   function hasValidContext(text, position, contextSettings) {
@@ -184,13 +184,25 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
       const searchTerm = keyword.caseSensitive ? keyword.word : keyword.word.toLowerCase();
       console.log(`Searching for keyword: "${searchTerm}" (case ${keyword.caseSensitive ? 'sensitive' : 'insensitive'})`);
       
+      // Initialize matches array for this keyword
       const matches = [];
 
       if (keyword.useExactText) {
         const exactMatches = findExactTextMatches(doc.content, keyword.word, keyword.caseSensitive, keyword.displayContextRange);
         
+        console.log(`Found ${exactMatches.length} potential exact matches before context validation`);
+        
         for (const match of exactMatches) {
+          console.log(`Validating context for match at position ${match.position}`);
+          console.log('Context settings:', {
+            before: keyword.contextBefore,
+            after: keyword.contextAfter,
+            rangeBefore: keyword.contextRangeBefore,
+            rangeAfter: keyword.contextRangeAfter
+          });
+          
           if (hasValidContext(documentWords.join(' '), match.position, keyword)) {
+            console.log('Match passed context validation');
             matches.push({
               position: match.position,
               term: match.matchedText,
@@ -198,6 +210,8 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
               wordsAfter: match.wordsAfter,
               similarity: 1
             });
+          } else {
+            console.log('Match failed context validation');
           }
         }
       } else {
