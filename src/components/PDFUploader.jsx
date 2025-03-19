@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
-import { Upload, AlertTriangle, Loader2 } from 'lucide-react';
+import { Upload, AlertTriangle, Loader2, Pause, Play } from 'lucide-react';
 
-const PDFUploader = ({ onFileUpload, isProcessing, progress, failedUploads = [], reprocessFailedUploads }) => {
+const PDFUploader = ({ onFileUpload, isProcessing, progress, failedUploads = [], reprocessFailedUploads, isPaused = false, onPause = () => {}, onResume = () => {} }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [warning, setWarning] = useState(null);
@@ -19,8 +19,8 @@ const PDFUploader = ({ onFileUpload, isProcessing, progress, failedUploads = [],
   const processFiles = useCallback((files) => {
     // 200MB per file
     const MAX_FILE_SIZE = 200 * 1024 * 1024;
-    // 2GB total
-    const MAX_TOTAL_SIZE = 2 * 1024 * 1024 * 1024;
+    // 20GB total (increased from 2GB)
+    const MAX_TOTAL_SIZE = 20 * 1024 * 1024 * 1024;
 
     const pdfFiles = Array.from(files).filter(file => 
       file.type === 'application/pdf'
@@ -41,7 +41,7 @@ const PDFUploader = ({ onFileUpload, isProcessing, progress, failedUploads = [],
     // Check total size
     const totalSize = pdfFiles.reduce((sum, file) => sum + file.size, 0);
     if (totalSize > MAX_TOTAL_SIZE) {
-      setWarning('Total upload size exceeds 2GB limit');
+      setWarning('Total upload size exceeds 20GB limit');
       return;
     }
 
@@ -107,12 +107,41 @@ const PDFUploader = ({ onFileUpload, isProcessing, progress, failedUploads = [],
 
         {isProcessing && (
           <div className="mt-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm">
+                Processing {progress.processed} of {progress.total} files...
+              </span>
+              
+              <button
+                onClick={isPaused ? onResume : onPause}
+                className="flex items-center gap-1 px-3 py-1 text-xs rounded-md bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+              >
+                {isPaused ? (
+                  <>
+                    <Play className="h-3 w-3" />
+                    Resume
+                  </>
+                ) : (
+                  <>
+                    <Pause className="h-3 w-3" />
+                    Pause
+                  </>
+                )}
+              </button>
+            </div>
+            
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
               <div 
-                className="bg-blue-500 h-2.5 rounded-full transition-all duration-300"
+                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
                 style={{ width: `${(progress.processed / progress.total) * 100}%` }}
-              />
+              ></div>
             </div>
+            
+            {progress.total > 100 && (
+              <p className="text-xs text-gray-500 mt-2">
+                Processing large batches ({progress.total} files) may take some time. You can pause/resume if needed.
+              </p>
+            )}
           </div>
         )}
       </div>

@@ -17,7 +17,11 @@ function App() {
     processDocuments,
     removeDocument,
     failedUploads,
-    reprocessFailedUploads
+    reprocessFailedUploads,
+    uploadDocuments,
+    isPaused,
+    pauseProcessing,
+    resumeProcessing
   } = useDocuments();
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [analysisResults, setAnalysisResults] = useState(null);
@@ -58,7 +62,7 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
       <div style={{ width: '80%', margin: '0 auto' }} className="p-8">
         <h1 className="text-3xl font-bold text-center mb-8 text-gray-900 dark:text-white">
           Document Analysis Tool
@@ -92,11 +96,14 @@ function App() {
           {showDocuments && (
             <div className="mt-4">
               <PDFUploader 
-                onFileUpload={handleFileUpload} 
+                onFileUpload={uploadDocuments}
                 isProcessing={isProcessing}
                 progress={progress}
                 failedUploads={failedUploads}
-                reprocessFailedUploads={reprocessFailedUploads}
+                reprocessFailedUploads={() => {/* ... */}}
+                isPaused={isPaused}
+                onPause={pauseProcessing}
+                onResume={resumeProcessing}
               />
             </div>
           )}
