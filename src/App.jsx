@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import PDFUploader from './components/PDFUploader';
 import TextViewer from './components/TextViewer';
 import KeywordAnalyzer from './components/KeywordAnalyzer';
 import AnalysisResults from './components/AnalysisResults';
-import SimpleLoader from './components/Loader';
+import Loader from './components/Loader';
 import { analyzeText } from './utils/textAnalyzer.js';
 import { useDocuments } from './hooks/useDocuments';
-import { ChevronUp, ChevronDown } from 'lucide-react';
+import { ChevronUp, ChevronDown, XCircle } from 'lucide-react';
+import MemoryMonitor from './components/MemoryMonitor';
 
 function App() {
   const {
@@ -21,13 +22,15 @@ function App() {
     uploadDocuments,
     isPaused,
     pauseProcessing,
-    resumeProcessing
+    resumeProcessing,
+    getDocumentText
   } = useDocuments();
   const [selectedDocument, setSelectedDocument] = useState(null);
   const [analysisResults, setAnalysisResults] = useState(null);
   const [showDocuments, setShowDocuments] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
+  const abortControllerRef = useRef(null);
 
   const handleFileUpload = async (files) => {
     console.log('Files received:', files);
@@ -37,10 +40,20 @@ function App() {
 
   const handleAnalyze = async (keywords, globalSettings) => {
     try {
+      // Create a new AbortController
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+      
       setIsAnalyzing(true);
       setAnalysisProgress(0);
       
-      const totalWork = documents.length * keywords.length;
+      // Create complete documents with text
+      const documentsWithText = documents.map(doc => ({
+        ...doc,
+        content: getDocumentText(doc.id) // Get text content only when needed
+      }));
+      
+      const totalWork = documentsWithText.length * keywords.length;
       let completedWork = 0;
   
       const updateProgress = () => {
@@ -49,15 +62,31 @@ function App() {
         setAnalysisProgress(currentProgress);
       };
   
-      const results = await analyzeText(documents, keywords, globalSettings, updateProgress);
-      setAnalysisResults(results);
-      setShowDocuments(false);
+      const results = await analyzeText(documentsWithText, keywords, globalSettings, updateProgress, signal);
+      
+      // Only update results if not aborted
+      if (!signal.aborted) {
+        setAnalysisResults(results);
+        setShowDocuments(false);
+      }
     } catch (error) {
-      console.error('Analysis error:', error);
-      alert('Error during analysis: ' + error.message);
+      // Don't show error if it was just aborted
+      if (error.name !== 'AbortError') {
+        console.error('Analysis error:', error);
+        alert('Error during analysis: ' + error.message);
+      } else {
+        console.log('Analysis was cancelled by user');
+      }
     } finally {
       setIsAnalyzing(false);
       setAnalysisProgress(0);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const killAnalysis = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
   };
 
@@ -131,9 +160,25 @@ function App() {
         )}
 
         {isAnalyzing && (
-          <SimpleLoader progress={analysisProgress} />
+          <div className="fixed inset-0 flex items-center justify-center bg-black/30 z-50">
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl flex flex-col items-center gap-4 max-w-md">
+              <h3 className="text-lg font-semibold">Analyzing Documents</h3>
+              <Loader progress={analysisProgress} />
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                Processing {Math.round(analysisProgress)}% complete...
+              </p>
+              <button
+                onClick={killAnalysis}
+                className="mt-2 flex items-center gap-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md"
+              >
+                <XCircle className="h-4 w-4" />
+                Kill Analysis
+              </button>
+            </div>
+          </div>
         )}
       </div>
+      <MemoryMonitor />
     </div>
   );
 }

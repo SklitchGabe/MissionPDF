@@ -1,6 +1,6 @@
 import stringSimilarity from 'string-similarity';
 
-export async function analyzeText(documents, keywords, globalSettings, onProgress) {
+export async function analyzeText(documents, keywords, globalSettings, onProgress, signal) {
   console.log('Starting analysis with:', {
     documentCount: documents.length,
     keywords: keywords.map(k => k.word),
@@ -161,6 +161,11 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
   const results = [];
   
   for (const doc of documents) {
+    // Check if operation was aborted
+    if (signal && signal.aborted) {
+      throw new DOMException('Analysis was aborted', 'AbortError');
+    }
+    
     if (!doc.content) {
       console.warn(`Document ${doc.name} has no content`);
       continue;
@@ -177,6 +182,11 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
     const documentWords = doc.content.split(/\s+/);
     
     for (const keyword of processedKeywords) {
+      // Check if operation was aborted
+      if (signal && signal.aborted) {
+        throw new DOMException('Analysis was aborted', 'AbortError');
+      }
+      
       await new Promise(resolve => setTimeout(resolve, 0));
 
       if (!keyword.word) continue;

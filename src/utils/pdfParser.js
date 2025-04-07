@@ -3,30 +3,52 @@ import * as pdfjsLib from 'pdfjs-dist';
 // Configure worker with CDN URL
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
-export async function parsePDF(file) {
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-    const pdf = await loadingTask.promise;
-    const maxPages = pdf.numPages;
-    const pageTextPromises = [];
+// Create a worker
+let pdfWorker = null;
 
-    // Extract text from each page
-    for (let pageNo = 1; pageNo <= maxPages; pageNo++) {
-      pageTextPromises.push(getPageText(pdf, pageNo));
-    }
-
-    const pagesText = await Promise.all(pageTextPromises);
-    
-    return {
-      fileName: file.name,
-      text: pagesText.join(' '),
-      pageCount: maxPages,
-    };
-  } catch (error) {
-    console.error('Error parsing PDF:', error);
-    throw new Error(`Failed to parse PDF ${file.name}: ${error.message}`);
+// Initialize worker
+function initWorker() {
+  if (pdfWorker === null) {
+    pdfWorker = new Worker(new URL('./pdfWorker.js', import.meta.url), { type: 'module' });
   }
+  return pdfWorker;
+}
+
+export async function parsePDF(file) {
+  return new Promise((resolve, reject) => {
+    try {
+      const worker = initWorker();
+      
+      // Handle worker response
+      const messageHandler = (e) => {
+        if (e.data.result && e.data.result.fileName === file.name) {
+          worker.removeEventListener('message', messageHandler);
+          if (e.data.success) {
+            resolve(e.data.result);
+          } else {
+            reject(new Error(e.data.error));
+          }
+        }
+      };
+      
+      worker.addEventListener('message', messageHandler);
+      
+      // Send file to worker as ArrayBuffer
+      file.arrayBuffer().then(buffer => {
+        worker.postMessage({
+          action: 'parsePDF',
+          file: {
+            data: buffer,
+            name: file.name
+          }
+        }, [buffer]); // Transfer ownership of the buffer
+      });
+      
+    } catch (error) {
+      console.error('Error setting up PDF parsing:', error);
+      reject(error);
+    }
+  });
 }
 
 async function getPageText(pdf, pageNo) {

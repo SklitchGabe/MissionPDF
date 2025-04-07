@@ -1,13 +1,16 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { parsePDF } from '../utils/pdfParser';
 
-// Reduced batch size for more frequent UI updates
-const BATCH_SIZE = 3; 
-// Add delay between batches to prevent browser lock-up
-const BATCH_DELAY = 300; 
+// Further reduce batch size for very large uploads
+const BATCH_SIZE = 2;
+// Increase delay between batches
+const BATCH_DELAY = 500;
+// Limit for text storage per document (for very large documents)
+const MAX_TEXT_LENGTH = 1000000; // ~1MB of text
 
 export function useDocuments() {
   const [documents, setDocuments] = useState([]);
+  const [documentTexts, setDocumentTexts] = useState({}); // Store texts separately
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState({ 
     processed: 0,
@@ -21,6 +24,14 @@ export function useDocuments() {
   const processingRef = useRef(false);
   const pendingFilesRef = useRef([]);
 
+  // Clear documents when component unmounts
+  useEffect(() => {
+    return () => {
+      // Clean up any large objects
+      setDocumentTexts({});
+    };
+  }, []);
+
   const pauseProcessing = useCallback(() => {
     setIsPaused(true);
   }, []);
@@ -33,16 +44,67 @@ export function useDocuments() {
   }, [progress.processed]);
 
   const cleanupMemory = useCallback(() => {
-    // Force garbage collection if possible (though JavaScript doesn't expose direct GC control)
+    // Force garbage collection hint
     if (window.gc) {
-      window.gc(); // Only works if browser is started with --expose-gc flag
+      window.gc();
     }
     
-    // Clear any large objects that might be in memory
+    // Log memory usage if available
     if (window.performance && window.performance.memory) {
-      console.log('Memory usage before cleanup:', window.performance.memory.usedJSHeapSize / 1048576, 'MB');
+      console.log('Memory usage:', 
+        (window.performance.memory.usedJSHeapSize / 1048576).toFixed(2), 'MB / ',
+        (window.performance.memory.jsHeapSizeLimit / 1048576).toFixed(2), 'MB');
     }
+    
+    // Create pressure for garbage collection
+    const pressure = [];
+    setTimeout(() => pressure.length = 0, 0);
   }, []);
+
+  // Truncate text if needed to save memory
+  const processDocumentText = useCallback((text) => {
+    if (text.length > MAX_TEXT_LENGTH) {
+      console.warn(`Truncating document text from ${text.length} to ${MAX_TEXT_LENGTH} characters`);
+      return text.substring(0, MAX_TEXT_LENGTH) + 
+        `... [Content truncated. Original length: ${text.length} characters]`;
+    }
+    return text;
+  }, []);
+
+  // Process a document with memory management
+  const processDocument = useCallback(async (file) => {
+    try {
+      const parsed = await parsePDF(file);
+      const id = `${file.name}-${Date.now()}`;
+      
+      // Store document metadata separate from content
+      const docMeta = {
+        id,
+        name: file.name,
+        pageCount: parsed.pageCount,
+        size: file.size,
+        lastModified: file.lastModified,
+        hasFullText: parsed.text.length <= MAX_TEXT_LENGTH
+      };
+      
+      // Store text separately to allow GC to manage memory better
+      setDocumentTexts(prev => ({
+        ...prev,
+        [id]: processDocumentText(parsed.text)
+      }));
+      
+      return docMeta;
+    } catch (err) {
+      console.error(`Error processing ${file.name}:`, err);
+      setFailedUploads(prev => [...prev, file]);
+      return null;
+    }
+  }, [processDocumentText]);
+
+  // Get document text (on-demand retrieval)
+  const getDocumentText = useCallback((docId) => {
+    return documentTexts[docId] || '';
+  }, [documentTexts]);
 
   const processBatch = useCallback(async (files, startIndex) => {
     if (isPaused) {
@@ -55,30 +117,17 @@ export function useDocuments() {
     const currentBatch = files.slice(startIndex, batchEnd);
 
     try {
-      const processedDocs = await Promise.all(
-        currentBatch.map(async (file) => {
-          try {
-            const parsed = await parsePDF(file);
-            return {
-              id: `${file.name}-${Date.now()}`,
-              name: file.name,
-              content: parsed.text,
-              pageCount: parsed.pageCount,
-              size: file.size,
-              lastModified: file.lastModified
-            };
-          } catch (err) {
-            console.error(`Error processing ${file.name}:`, err);
-            setFailedUploads(prev => [...prev, file]);
-            return null;
-          }
-        })
-      );
-
-      // Filter out failed documents
-      const validDocs = processedDocs.filter(doc => doc !== null);
+      // Process one document at a time instead of Promise.all to reduce peak memory usage
+      const validDocs = [];
+      for (const file of currentBatch) {
+        const doc = await processDocument(file);
+        if (doc) validDocs.push(doc);
+        
+        // Allow browser to breathe between individual files
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
       
-      // Update state with new documents - use functional update to avoid race conditions
+      // Update state with new documents
       setDocuments(prev => [...prev, ...validDocs]);
       
       // Update progress
@@ -93,7 +142,7 @@ export function useDocuments() {
 
       // If we have more files to process, wait and then process the next batch
       if (batchEnd < files.length) {
-        pendingFilesRef.current = files;
+        pendingFilesRef.current = files.slice(batchEnd);
         
         // Add a delay between batches to let the browser breathe
         await new Promise(resolve => setTimeout(resolve, BATCH_DELAY));
@@ -111,7 +160,7 @@ export function useDocuments() {
       setError(`Error processing files: ${error.message}`);
       processingRef.current = false;
     }
-  }, [isPaused, cleanupMemory]);
+  }, [isPaused, cleanupMemory, processDocument]);
 
   const uploadDocuments = useCallback(async (files) => {
     try {
@@ -171,6 +220,7 @@ export function useDocuments() {
     reprocessFailedUploads,
     isPaused,
     pauseProcessing,
-    resumeProcessing
+    resumeProcessing,
+    getDocumentText // Expose method to get text on demand
   };
 }
