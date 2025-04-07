@@ -58,7 +58,10 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
     const contextSlice = words.slice(startIdx, endIdx);
     console.log(`Checking context slice (${range} words ${direction}):`, contextSlice);
 
-    // For each required context word, check if it exists in the range
+    // For each context word, check if it exists in the range
+    // Instead of returning early, count how many words match
+    let matchCount = 0;
+    
     for (const contextWord of contextWords) {
       const found = contextSlice.some(word => {
         if (direction === 'before' ? settings.exactContextBefore : settings.exactContextAfter) {
@@ -73,16 +76,19 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
         }
       });
 
+      if (found) matchCount++;
       console.log(`Context word "${contextWord}" ${found ? 'found' : 'not found'} in ${range}-word ${direction} range`);
-      
-      if (found && settings.contextLogicType === 'OR') {
-        return true;
-      } else if (!found && settings.contextLogicType === 'AND') {
-        return false;
-      }
     }
-
-    return settings.contextLogicType === 'AND';
+    
+    // Use a different parameter or create a new setting (e.g., directionLogicType) 
+    // to handle how multiple words within a direction are combined
+    const withinDirectionLogic = "OR"; // Default to OR for backward compatibility
+    
+    // For OR logic within a direction, any match is sufficient
+    // For AND logic within a direction, all words must match
+    return withinDirectionLogic === "OR" 
+      ? matchCount > 0
+      : matchCount === contextWords.length;
   }
 
   function hasValidContext(text, position, contextSettings) {
@@ -106,15 +112,10 @@ export async function analyzeText(documents, keywords, globalSettings, onProgres
     const afterMatches = afterWords.length === 0 ? true :
       checkContextMatch(text, position, contextSettings, 'after');
 
-    // Apply logic type only if both directions have context words
-    if (beforeWords.length > 0 && afterWords.length > 0) {
-      return contextSettings.contextLogicType === 'AND' ? 
-        (beforeMatches && afterMatches) : 
-        (beforeMatches || afterMatches);
-    }
-
-    // If only one direction has context words, just return that result
-    return beforeWords.length > 0 ? beforeMatches : afterMatches;
+    // Always apply the logic type between directions as specified
+    return contextSettings.contextLogicType === 'AND' ? 
+      (beforeMatches && afterMatches) : 
+      (beforeMatches || afterMatches);
   }
 
   function checkFuzzyMatch(word1, word2, threshold, caseSensitive) {
