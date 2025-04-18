@@ -35,7 +35,7 @@ The Document Analysis Tool is an application designed to help you analyze text c
 3. The application will process your documents and extract text content
 4. For large files, this may take some time - a progress bar will show status
 
-![Document Upload Section](docs/upload-section.png)
+
 
 **Tips:**
 - You can upload up to 20GB of documents, but individual files should be under 200MB
@@ -52,7 +52,7 @@ The Document Analysis Tool is an application designed to help you analyze text c
    - Fuzzy matching: Find words that are similar but not exact matches
    - Context requirements: Specify words that should appear before or after your keywords
 
-![Keyword Configuration](docs/keyword-section.png)
+
 
 **Tips for Advanced Search:**
 - **Context Requirements** are powerful for finding specific phrases or situations
@@ -70,7 +70,7 @@ The Document Analysis Tool is an application designed to help you analyze text c
 4. Click on a document name to expand and see details
 5. Click "Show Matches" to see the exact text surrounding each match
 
-![Results Section](docs/results-section.png)
+
 
 ### Step 4: Explore Advanced Visualizations
 
